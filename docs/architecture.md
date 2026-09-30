@@ -27,7 +27,7 @@ Rules, checked automatically by `uv run lint-imports` (contracts in `backend/pyp
 |---|---|---|---|
 | `ingest` | `utm.py`, `readers.py`, `parcels.py` | `utm_epsg`, `to_utm`, `from_utm`, `read_features`, `parse_parcel`, `Parcel`, `ParcelFeature`, `ParcelError` | **done** |
 | `sentinel` | `cdse.py`, `evalscripts/`, `statistical.py`, `composites.py`, `quota.py` | daily stats, monthly composites | started (`cdse.py`) |
-| `timeseries` | `campaigns.py`, `clean.py`, `metrics.py`, `active_area.py` | `campaign_of`, cleaning, campaign metrics | planned (week 4) |
+| `timeseries` | `campaigns.py`, `indices.py`, `clean.py`, `metrics.py`, `active_area.py` | `campaign_of`, `ndvi`, `ndwi`, `clean_series`, `campaign_metrics`, `active_fraction`, `max_ndvi_composite` | **done** |
 | `ml` | `features.py`, `train_rf.py`, `train_transformer.py`, `predict.py`, `evaluate.py` | features, training, prediction | planned (weeks 5–6, 11) |
 | `analysis` | `flags.py`, `neighbors.py`, `water.py`, `report.py` | flags, neighbor band, water check, report | planned (week 7) |
 | `valley` | `classify.py`, `areas.py`, `render.py` | pixel classes, hectares with CI, map image | planned (week 10) |

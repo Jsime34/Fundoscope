@@ -17,6 +17,11 @@ dependencies = [
     "sentinelhub>=3.11",
     "openeo>=0.30",
     "defusedxml>=0.7",
+    # openeo (>=0.48) requires pandas < 3, and pandas 2.x triggers NumPy 2.5's "generic
+    # timedelta unit" deprecation. Lift both caps once openeo supports pandas 3.
+    "numpy>=2.0,<2.5",
+    "pandas>=2.2,<3",
+    "scipy>=1.13",
 ]
 
 [project.scripts]
@@ -51,6 +56,8 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["--import-mode=importlib"]
+# Any warning fails the tests, so deprecations are fixed when they appear, not later.
+filterwarnings = ["error"]
 
 # --- Architecture rules, checked by `uv run lint-imports` (see docs/architecture.md) ---
 [tool.importlinter]
