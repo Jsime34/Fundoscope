@@ -1,0 +1,33 @@
+# --- Secrets and private material: never commit (this repo is public) ---
+.env
+.env.*
+!.env.example
+private/
+*.docx
+~$*
+.claude/settings.local.json
+
+# --- Data and trained models (large and/or private partner data) ---
+data/
+models/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+*.egg-info/
+build/
+dist/
+
+# --- Node ---
+node_modules/
+frontend/dist/
+
+# --- OS ---
+Thumbs.db
+.DS_Store

@@ -1,0 +1,24 @@
+name: fundoscope
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: fundoscope_db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fundoscope}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fundoscope}
+      POSTGRES_DB: ${POSTGRES_DB:-fundoscope}
+    ports:
+      # 5433 on the host so it never collides with another local Postgres on 5432
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:
