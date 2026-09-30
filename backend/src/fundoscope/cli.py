@@ -1,26 +1,7 @@
 """Command-line entry point: `uv run fundoscope <command>`."""
 
 import argparse
-import math
-
-# Tiny NDVI evalscript for the connectivity check; cloud/shadow pixels are masked via SCL.
-_CHECK_EVALSCRIPT = """
-//VERSION=3
-function setup() {
-  return {
-    input: [{ bands: ["B04", "B08", "SCL", "dataMask"] }],
-    output: [
-      { id: "ndvi", bands: 1, sampleType: "FLOAT32" },
-      { id: "dataMask", bands: 1 }
-    ]
-  };
-}
-const BAD_SCL = [0, 1, 3, 8, 9, 10];
-function evaluatePixel(s) {
-  const clear = s.dataMask === 1 && BAD_SCL.indexOf(s.SCL) === -1;
-  return { ndvi: [(s.B08 - s.B04) / (s.B08 + s.B04)], dataMask: [clear ? 1 : 0] };
-}
-"""
+from datetime import date
 
 
 def check_db() -> int:
@@ -42,10 +23,10 @@ def check_db() -> int:
 
 
 def check_cdse() -> int:
-    """Get a CDSE token, then run one tiny Statistical API request (a few PU)."""
-    from sentinelhub import CRS, BBox, SentinelHubSession, SentinelHubStatistical
+    """Get a CDSE token, then fetch one month of daily stats for a public box near Ica (~1 PU)."""
+    from sentinelhub import CRS, BBox, SentinelHubSession
 
-    from fundoscope.sentinel.cdse import s2_l2a, sh_config
+    from fundoscope.sentinel import fetch_daily_stats, sh_config
 
     config = sh_config()
     if not config.sh_client_id or not config.sh_client_secret:
@@ -58,32 +39,24 @@ def check_cdse() -> int:
         return 1
     print("CDSE token OK")
 
-    # ~1 km x 1 km box near Ica; sent in UTM 18S so the 10 m resolution is in meters.
-    bbox = BBox((-75.74, -14.08, -75.73, -14.07), crs=CRS.WGS84).transform(CRS(32718))
-    request = SentinelHubStatistical(
-        aggregation=SentinelHubStatistical.aggregation(
-            evalscript=_CHECK_EVALSCRIPT,
-            time_interval=("2024-01-01", "2024-01-31"),
-            aggregation_interval="P1D",
-            resolution=(10, 10),
-        ),
-        input_data=[SentinelHubStatistical.input_data(s2_l2a())],
-        bbox=bbox,
-        config=config,
-    )
+    # ~1 km x 1 km box near Ica, in UTM 18S so the 10 m resolution is in meters.
+    box = BBox((-75.74, -14.08, -75.73, -14.07), crs=CRS.WGS84).transform(CRS(32718))
     try:
-        response = request.get_data()[0]
+        result = fetch_daily_stats(
+            box.geometry, 32718, date(2024, 1, 1), date(2024, 1, 31), config=config
+        )
     except Exception as exc:
         print(f"Statistical API request FAILED: {exc}")
         return 1
 
-    print("Statistical API OK. Mean NDVI per clear date, Jan 2024:")
-    for day in response.get("data", []):
-        stats = day["outputs"]["ndvi"]["bands"]["B0"]["stats"]
-        mean = float(stats.get("mean", "nan"))
-        if not math.isnan(mean):
-            clear = 1 - stats["noDataCount"] / stats["sampleCount"]
-            print(f"  {day['interval']['from'][:10]}  NDVI={mean:.3f}  clear={clear:.0%}")
+    print(f"Statistical API OK ({result.processing_units:.2f} processing units). Jan 2024:")
+    for day, row in result.observations.iterrows():
+        values = (
+            "fully cloudy"
+            if row["valid_fraction"] == 0
+            else (f"NDVI={row['ndvi']:.3f}  NDWI={row['ndwi']:.3f}")
+        )
+        print(f"  {day:%Y-%m-%d}  clear={row['valid_fraction']:.0%}  {values}")
     return 0
 
 
