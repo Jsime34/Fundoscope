@@ -58,6 +58,17 @@ Requirements: [uv](https://docs.astral.sh/uv/), Docker, Git.
    uv run uvicorn fundoscope.api.main:app --reload --port 8020
    ```
 
+## Usage
+
+A parcel's campaign-by-campaign history (2018 to today) from a KML, KMZ, or GeoJSON file:
+
+```
+cd backend
+uv run fundoscope history path/to/parcel.kml
+```
+
+It prints the campaign table and saves `campaigns.csv`, `observations.csv`, `series.csv`, and an NDVI chart to `data/private/history/<parcel>/` (git-ignored). A full 8-year history of a small parcel costs about 20 Copernicus processing units (the free tier gives 10,000 per month).
+
 ## Data sources and attribution
 
 - Contains modified Copernicus Sentinel data [2018–2026], processed through the Copernicus Data Space Ecosystem.

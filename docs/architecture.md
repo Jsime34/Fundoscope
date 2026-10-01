@@ -32,9 +32,9 @@ Rules, checked automatically by `uv run lint-imports` (contracts in `backend/pyp
 | `analysis` | `flags.py`, `neighbors.py`, `water.py`, `report.py` | flags, neighbor band, water check, report | planned (week 7) |
 | `valley` | `classify.py`, `areas.py`, `render.py` | pixel classes, hectares with CI, map image | planned (week 10) |
 | `db` | `models.py`, `session.py`, `repositories.py` | tables and queries | planned (week 3) |
-| `pipeline` | `analyze_parcel.py`, `refresh_valley.py` | end-to-end jobs | planned (weeks 3–10) |
+| `pipeline` | `parcel_history.py`, `analyze_parcel.py`, `refresh_valley.py` | `parcel_history`, `ParcelHistory`; end-to-end jobs | in progress (`parcel_history` done, no DB cache yet) |
 | `api` | `main.py`, `routes/`, `schemas.py`, `worker.py` | REST endpoints | started (`/health`) |
-| `cli` | `cli.py` | `fundoscope` command | started (`check-db`, `check-cdse`) |
+| `cli` | `checks.py`, `history.py`, `plots.py` | `fundoscope check-db`, `check-cdse`, `history <file>` | in progress |
 
 ## Definition of done (every submodule)
 

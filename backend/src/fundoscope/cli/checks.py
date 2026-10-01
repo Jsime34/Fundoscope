@@ -1,6 +1,5 @@
-"""Command-line entry point: `uv run fundoscope <command>`."""
+"""Setup checks: `fundoscope check-db` and `fundoscope check-cdse`."""
 
-import argparse
 from datetime import date
 
 
@@ -58,20 +57,3 @@ def check_cdse() -> int:
         )
         print(f"  {day:%Y-%m-%d}  clear={row['valid_fraction']:.0%}  {values}")
     return 0
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="fundoscope",
-        description="Satellite crop monitoring and parcel due diligence for coastal Peru.",
-    )
-    sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("check-db", help="connect to PostGIS and print its version")
-    sub.add_parser("check-cdse", help="test Copernicus Data Space credentials and API access")
-    args = parser.parse_args(argv)
-
-    if args.command == "check-db":
-        return check_db()
-    if args.command == "check-cdse":
-        return check_cdse()
-    return 1
