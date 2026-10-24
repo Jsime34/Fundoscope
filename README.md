@@ -26,7 +26,7 @@ backend/            Python package (src/fundoscope) and tests
     pipeline/       end-to-end jobs that combine the modules above with I/O
     api/            REST API and job worker
     db/             models and migrations
-frontend/           React app (coming in week 8)
+frontend/           React web app (prototype: parcel history)
 notebooks/          exploration notebooks (outputs stripped)
 docs/               requirements, architecture, evaluation
 docker-compose.yml  local PostGIS
@@ -36,7 +36,7 @@ Module boundaries, dependency rules, and the per-module checklist are in [docs/a
 
 ## Development setup
 
-Requirements: [uv](https://docs.astral.sh/uv/), Docker, Git.
+Requirements: [uv](https://docs.astral.sh/uv/), Node.js 20.19+ or 22.12+, Docker, Git.
 
 1. Copy `.env.example` to `.env` and add your Copernicus Data Space OAuth client ID and secret.
 2. Start the database (host port 5433):
@@ -57,8 +57,20 @@ Requirements: [uv](https://docs.astral.sh/uv/), Docker, Git.
    ```
    uv run uvicorn fundoscope.api.main:app --reload --port 8020
    ```
+5. In a second terminal, install and run the web app (http://localhost:5180; it forwards `/api` to the API on port 8020):
+   ```
+   cd frontend
+   npm install
+   npm run dev
+   ```
 
 ## Usage
+
+### Web app
+
+With the API and the web app running (setup steps 4 and 5), open http://localhost:5180 and drop a KML, KMZ, or GeoJSON parcel. The first run downloads the parcel's history from Copernicus (about a minute and a half for a small parcel); the result is cached for the day in `data/private/cache/` (git-ignored), so opening the same file again is instant. The page shows the parcel on satellite imagery, the NDVI and NDWI curves since 2018, and the campaign table with the % of the area actively farmed.
+
+### Command line
 
 A parcel's campaign-by-campaign history (2018 to today) from a KML, KMZ, or GeoJSON file:
 
@@ -67,7 +79,7 @@ cd backend
 uv run fundoscope history path/to/parcel.kml
 ```
 
-It prints the campaign table and saves `campaigns.csv`, `observations.csv`, `series.csv`, and an NDVI chart to `data/private/history/<parcel>/` (git-ignored). A full 8-year history of a small parcel costs about 20 Copernicus processing units (the free tier gives 10,000 per month).
+It prints the campaign table and saves `campaigns.csv`, `observations.csv`, `series.csv`, and an NDVI chart to `data/private/history/<parcel>/` (git-ignored). A full 8-year history of a small parcel costs about 20 Copernicus processing units (the free tier gives 10,000 per month). Add `--active-area` for the % of the area actively farmed per campaign; it downloads monthly composites through openEO and costs about 60 more openEO credits (also 10,000 free per month).
 
 ## Data sources and attribution
 

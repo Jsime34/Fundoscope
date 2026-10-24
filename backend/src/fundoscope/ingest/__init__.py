@@ -14,7 +14,7 @@ from fundoscope.ingest.parcels import (
     validate_parcel,
 )
 from fundoscope.ingest.readers import ParcelError, ParcelFeature, read_features
-from fundoscope.ingest.utm import from_utm, to_utm, utm_epsg
+from fundoscope.ingest.utm import from_utm, to_utm, utm_epsg, zone_label
 
 __all__ = [
     "MAX_AREA_HA",
@@ -28,4 +28,5 @@ __all__ = [
     "to_utm",
     "utm_epsg",
     "validate_parcel",
+    "zone_label",
 ]

@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from fundoscope.cli.plots import UTM_REGION, history_chart
+from fundoscope.cli.plots import history_chart
 from fundoscope.config import get_settings
-from fundoscope.ingest import ParcelError
+from fundoscope.ingest import ParcelError, zone_label
 from fundoscope.pipeline import ParcelHistory, parcel_history
-from fundoscope.pipeline.parcel_history import Fetcher
-from fundoscope.sentinel import SentinelError
+from fundoscope.pipeline.parcel_history import CompositeFetcher, Fetcher
+from fundoscope.sentinel import SentinelError, fetch_monthly_composites
 
 TABLE_HEADERS = {
     "peak_ndvi": "peak NDVI",
@@ -21,22 +21,40 @@ TABLE_HEADERS = {
     "n_obs": "dates",
     "coverage": "coverage",
     "complete": "complete",
+    "active_area": "active",
 }
 
 
 def run_history(
-    file: Path, start: date, end: date | None, out: Path | None, fetch: Fetcher | None = None
+    file: Path,
+    start: date,
+    end: date | None,
+    out: Path | None,
+    *,
+    active_area: bool = False,
+    fetch: Fetcher | None = None,
+    fetch_composites: CompositeFetcher | None = None,
 ) -> int:
-    """Download, compute, print, and save a parcel's history. Returns the exit code."""
+    """Download, compute, print, and save a parcel's history. Returns the exit code.
+
+    With `active_area`, also downloads monthly composites (about 7 openEO credits and
+    30 seconds per campaign, two campaigns at a time) to compute % active area.
+    """
     try:
         data = file.read_bytes()
     except OSError as exc:
         print(f"Can't read {file}: {exc}")
         return 1
 
-    print(f"Downloading Sentinel-2 statistics for {file.name} ...")
+    options = {}
+    if fetch:
+        options["fetch"] = fetch
+    if active_area:
+        options["fetch_composites"] = fetch_composites or fetch_monthly_composites
+    extra = " and monthly composites" if active_area else ""
+    print(f"Downloading Sentinel-2 statistics{extra} for {file.name} ...")
     try:
-        history = parcel_history(data, file.name, start, end, **({"fetch": fetch} if fetch else {}))
+        history = parcel_history(data, file.name, start, end, **options)
     except ParcelError as exc:
         print(f"Parcel rejected: {exc}")
         return 1
@@ -48,7 +66,7 @@ def run_history(
     if history.campaigns.empty:
         print("\nNo clear satellite image in this period, so there is nothing to summarize.")
     else:
-        print("\n" + format_table(history.campaigns))
+        print("\n" + format_table(history.campaigns, with_active_area=active_area))
 
     out = out or default_output_dir(history.parcel.name or file.stem)
     save_outputs(history, out)
@@ -58,7 +76,7 @@ def run_history(
 
 def summary(history: ParcelHistory) -> str:
     parcel, daily, clean = history.parcel, history.daily, history.clean
-    region = UTM_REGION.get(parcel.utm_epsg, f"EPSG:{parcel.utm_epsg}")
+    region = zone_label(parcel.utm_epsg)
     obs = daily.observations
     lines = [f"Parcel: {parcel.name or '(unnamed)'} · {parcel.area_ha:.2f} ha · {region}"]
     if not obs.empty:
@@ -66,18 +84,26 @@ def summary(history: ParcelHistory) -> str:
             f"Satellite dates: {len(obs)} ({obs.index[0]:%Y-%m-%d} to {obs.index[-1]:%Y-%m-%d}); "
             f"removed {clean.dropped_cloudy} cloudy and {clean.dropped_dips} cloud dips"
         )
-    lines.append(
-        f"Cost: {daily.processing_units:.2f} processing units in {daily.requests} requests"
-    )
+    cost = f"Cost: {daily.processing_units:.2f} processing units in {daily.requests} requests"
+    if history.credits:
+        cost += f" + {history.credits:.0f} openEO credits"
+    lines.append(cost)
     if parcel.repaired:
         lines.append("Note: the outline was invalid and was repaired; check the drawing.")
     if daily.failed_intervals:
         lines.append(f"Note: the service could not process {daily.failed_intervals} dates.")
+    if history.active_area_failures:
+        lines.append(
+            f"Note: openEO failed for {history.active_area_failures} campaigns; "
+            "their active area is left empty."
+        )
     return "\n".join(lines)
 
 
-def format_table(campaigns: pd.DataFrame) -> str:
+def format_table(campaigns: pd.DataFrame, with_active_area: bool = True) -> str:
     table = campaigns.rename(columns=TABLE_HEADERS)
+    if not with_active_area:
+        table = table.drop(columns="active", errors="ignore")
     return table.to_string(
         formatters={
             "peak NDVI": "{:.2f}".format,
@@ -86,6 +112,7 @@ def format_table(campaigns: pd.DataFrame) -> str:
             "integrated": "{:.0f}".format,
             "coverage": "{:.0%}".format,
             "complete": lambda done: "yes" if done else "partial",
+            "active": lambda share: "—" if pd.isna(share) else f"{share:.0%}",
         }
     )
 

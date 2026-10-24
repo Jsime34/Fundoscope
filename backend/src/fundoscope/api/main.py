@@ -3,8 +3,10 @@
 from fastapi import FastAPI
 
 from fundoscope import __version__
+from fundoscope.api.history import router as history_router
 
 app = FastAPI(title="Fundoscope API", version=__version__)
+app.include_router(history_router)
 
 
 @app.get("/health")

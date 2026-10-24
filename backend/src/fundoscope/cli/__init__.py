@@ -35,6 +35,11 @@ def main(argv: list[str] | None = None) -> int:
         "--end", type=date.fromisoformat, default=None, help="last day (default today)"
     )
     history.add_argument(
+        "--active-area",
+        action="store_true",
+        help="also compute %% active area per campaign (about 7 openEO credits per campaign)",
+    )
+    history.add_argument(
         "--out",
         type=Path,
         default=None,
@@ -47,5 +52,5 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "check-cdse":
         return check_cdse()
     if args.command == "history":
-        return run_history(args.file, args.start, args.end, args.out)
+        return run_history(args.file, args.start, args.end, args.out, active_area=args.active_area)
     return 1

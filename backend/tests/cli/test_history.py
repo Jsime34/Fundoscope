@@ -15,7 +15,7 @@ def test_history_prints_the_table_and_saves_all_files(tmp_path, parcel_geojson, 
 
     printed = capsys.readouterr().out
     assert code == 0
-    assert "Lote demo · 9.00 ha · UTM 18S (Ica)" in printed
+    assert "Lote demo · 9.00 ha · UTM 18S" in printed
     assert "2.50 processing units" in printed
     assert "2022/23" in printed and "2023/24" in printed
     for name in ("campaigns.csv", "observations.csv", "series.csv"):
@@ -44,15 +44,47 @@ def test_a_missing_file_is_reported(tmp_path, capsys):
 def test_main_passes_parsed_arguments(monkeypatch):
     received = {}
 
-    def fake_run(file, start, end, out):
-        received.update(file=file, start=start, end=end, out=out)
+    def fake_run(file, start, end, out, active_area):
+        received.update(file=file, start=start, end=end, out=out, active_area=active_area)
         return 0
 
     monkeypatch.setattr(fundoscope.cli, "run_history", fake_run)
-    assert main(["history", "B4 48.kml", "--start", "2020-08-01", "--end", "2021-07-31"]) == 0
+    argv = ["history", "B4 48.kml", "--start", "2020-08-01", "--end", "2021-07-31"]
+    assert main([*argv, "--active-area"]) == 0
     assert received == {
         "file": Path("B4 48.kml"),
         "start": date(2020, 8, 1),
         "end": date(2021, 7, 31),
         "out": None,
+        "active_area": True,
     }
+
+
+def test_history_with_active_area_shows_the_column_and_the_credits(
+    tmp_path, parcel_geojson, fake_fetch, fake_composites, capsys
+):
+    parcel_file = tmp_path / "lote.geojson"
+    parcel_file.write_bytes(parcel_geojson)
+    code = run_history(
+        parcel_file,
+        date(2022, 8, 1),
+        date(2024, 7, 31),
+        tmp_path / "out",
+        active_area=True,
+        fetch=fake_fetch,
+        fetch_composites=fake_composites,
+    )
+    printed = capsys.readouterr().out
+    assert code == 0
+    assert "+ 14 openEO credits" in printed
+    assert "active" in printed and "77%" in printed  # 23 of 30 pixel columns are green
+
+
+def test_history_without_active_area_hides_the_column(tmp_path, parcel_geojson, fake_fetch, capsys):
+    parcel_file = tmp_path / "lote.geojson"
+    parcel_file.write_bytes(parcel_geojson)
+    run_history(
+        parcel_file, date(2022, 8, 1), date(2024, 7, 31), tmp_path / "out", fetch=fake_fetch
+    )
+    table_header = [line for line in capsys.readouterr().out.splitlines() if "peak NDVI" in line][0]
+    assert "active" not in table_header

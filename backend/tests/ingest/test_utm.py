@@ -2,7 +2,7 @@ import pytest
 import shapely
 from shapely.geometry import Point, box
 
-from fundoscope.ingest import from_utm, to_utm, utm_epsg
+from fundoscope.ingest import from_utm, to_utm, utm_epsg, zone_label
 
 
 @pytest.mark.parametrize(
@@ -45,3 +45,10 @@ def test_one_hectare_measured_in_utm():
     hectare_utm = box(420_000, 8_440_000, 420_100, 8_440_100)  # 100 m x 100 m in zone 18S
     lonlat = from_utm(hectare_utm, 32718)
     assert to_utm(lonlat, 32718).area == pytest.approx(10_000, rel=1e-6)
+
+
+def test_zone_labels():
+    assert zone_label(32718) == "UTM 18S"
+    assert zone_label(32717) == "UTM 17S"
+    assert zone_label(32630) == "UTM 30N"
+    assert zone_label(4326) == "EPSG:4326"
