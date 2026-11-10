@@ -1,7 +1,7 @@
 """Command-line interface: `uv run fundoscope <command>`.
 
 Submodules: `checks` (setup checks), `history` (a parcel's history), `plots` (PNG charts),
-`labels` (checks the labeled parcels).
+`labels` (checks the labeled parcels and downloads their training pixels).
 """
 
 import argparse
@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fundoscope.cli.checks import check_cdse, check_db
 from fundoscope.cli.history import run_history
-from fundoscope.cli.labels import run_labels_check
+from fundoscope.cli.labels import run_labels_check, run_labels_extract
 from fundoscope.sentinel import ARCHIVE_START
 
 
@@ -56,12 +56,33 @@ def main(argv: list[str] | None = None) -> int:
     labels_check.add_argument(
         "file", type=Path, nargs="?", default=None, help="default data/labels/labels.gpkg"
     )
+    labels_extract = labels_sub.add_parser(
+        "extract", help="download the training pixels of every label (uses openEO credits)"
+    )
+    labels_extract.add_argument(
+        "file", type=Path, nargs="?", default=None, help="default data/labels/labels.gpkg"
+    )
+    labels_extract.add_argument(
+        "--used-credits",
+        type=float,
+        default=None,
+        help="openEO credits already used this month (Copernicus dashboard); "
+        "the run stops before 80 %% of the month's quota",
+    )
+    labels_extract.add_argument(
+        "--cap", type=float, default=None, help="spend at most this many credits in this run"
+    )
+    labels_extract.add_argument(
+        "--dry-run", action="store_true", help="only count what is left to download"
+    )
 
     args = parser.parse_args(argv)
     if args.command == "check-db":
         return check_db()
     if args.command == "check-cdse":
         return check_cdse()
+    if args.command == "labels" and args.labels_command == "extract":
+        return run_labels_extract(args.file, args.used_credits, args.cap, dry_run=args.dry_run)
     if args.command == "labels":
         return run_labels_check(args.file)
     if args.command == "history":

@@ -93,3 +93,47 @@ def fake_composites() -> FakeComposites:
 def make_composites() -> type[FakeComposites]:
     """`make_composites(failures={...})` builds a fake that fails some requests first."""
     return FakeComposites
+
+
+class FakeCampaignComposites:
+    """Replaces `fetch_monthly_composites` for training data: every band, a green crop everywhere.
+
+    `fail` maps a campaign's first day ("2024-08-01") to how many requests fail before one
+    succeeds; `cloudy` campaigns have no clear pixel; `bands` overrides the bands returned;
+    `drop_month` leaves that month (0 = August) out of the result.
+    """
+
+    def __init__(self, fail=None, cloudy=(), bands=None, drop_month=None):
+        self.calls: list[tuple] = []
+        self.fail = dict(fail or {})
+        self.cloudy = set(cloudy)
+        self.bands = bands
+        self.drop_month = drop_month
+
+    def __call__(self, geometry_utm, epsg, start, end, bands):
+        self.calls.append((geometry_utm.bounds, start))
+        if self.fail.get(start.isoformat(), 0) > 0:
+            self.fail[start.isoformat()] -= 1
+            raise SentinelError("simulated openEO failure")
+        bands = list(self.bands or bands)
+        minx, miny, maxx, maxy = geometry_utm.bounds
+        x = np.arange(minx + 5, maxx, 10.0)
+        y = np.arange(maxy - 5, miny, -10.0)
+        months = pd.date_range(start, end, freq="MS")
+        if self.drop_month is not None:
+            months = months.delete(self.drop_month)
+        data = np.full((len(months), len(bands), len(y), len(x)), 0.1)
+        data[:, bands.index("B08")] = 0.45  # NDVI about 0.64: a growing crop
+        if start.isoformat() in self.cloudy:
+            data[:] = np.nan
+        stack = xr.DataArray(
+            data,
+            dims=("month", "band", "y", "x"),
+            coords={"month": months, "band": bands, "y": y, "x": x},
+        )
+        return MonthlyComposites(stack, epsg, credits=7.0)
+
+
+@pytest.fixture
+def make_campaign_composites() -> type[FakeCampaignComposites]:
+    return FakeCampaignComposites

@@ -89,6 +89,15 @@ uv run fundoscope labels check
 
 It reads `data/labels/labels.gpkg` (git-ignored), counts the parcels per region and crop class, and lists what still has to be fixed.
 
+Then download the training pixels of every label (monthly composites through openEO, about 7 credits per parcel and campaign):
+
+```
+uv run fundoscope labels extract --dry-run
+uv run fundoscope labels extract --used-credits 1200
+```
+
+`--used-credits` is what your account already used this month (Copernicus Data Space dashboard): the run stops before the month's usage reaches 80 % of the free 10,000 credits. Add `--cap N` to spend at most N credits. Each parcel and campaign is saved to `data/features/pixels/` (git-ignored) as soon as it finishes, so running the command again continues where it stopped.
+
 ## Data sources and attribution
 
 - Contains modified Copernicus Sentinel data [2018–2026], processed through the Copernicus Data Space Ecosystem.
