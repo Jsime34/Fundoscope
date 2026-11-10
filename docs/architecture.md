@@ -25,7 +25,7 @@ Rules, checked automatically by `uv run lint-imports` (contracts in `backend/pyp
 
 | Module | Submodules | Public API | Status |
 |---|---|---|---|
-| `ingest` | `utm.py`, `readers.py`, `parcels.py` | `utm_epsg`, `to_utm`, `from_utm`, `read_features`, `parse_parcel`, `Parcel`, `ParcelFeature`, `ParcelError` | **done** |
+| `ingest` | `utm.py`, `readers.py`, `parcels.py`, `labels.py` | `utm_epsg`, `to_utm`, `from_utm`, `read_features`, `parse_parcel`, `Parcel`, `ParcelFeature`, `ParcelError`, `read_labels`, `check_labels`, `LabelReport`, `LabelError`, `CROP_CLASSES` | **done** |
 | `sentinel` | `cdse.py`, `evalscripts.py`, `statistical.py`, `composites.py`, `quota.py` | `sh_config`, `fetch_daily_stats`, `DailyStats`, `fetch_monthly_composites`, `MonthlyComposites` | in progress (all but `quota` done) |
 | `timeseries` | `campaigns.py`, `indices.py`, `clean.py`, `metrics.py`, `active_area.py` | `campaign_of`, `ndvi`, `ndwi`, `clean_series`, `campaign_metrics`, `active_fraction`, `max_ndvi_composite` | **done** |
 | `ml` | `features.py`, `train_rf.py`, `train_transformer.py`, `predict.py`, `evaluate.py` | features, training, prediction | planned (weeks 5–6, 11) |
@@ -34,7 +34,7 @@ Rules, checked automatically by `uv run lint-imports` (contracts in `backend/pyp
 | `db` | `models.py`, `session.py`, `repositories.py` | tables and queries | planned (week 3) |
 | `pipeline` | `parcel_history.py`, `analyze_parcel.py`, `refresh_valley.py` | `parcel_history`, `ParcelHistory`; end-to-end jobs | in progress (`parcel_history` done, no DB cache yet) |
 | `api` | `main.py`, `routes/`, `schemas.py`, `worker.py` | REST endpoints | started (`/health`) |
-| `cli` | `checks.py`, `history.py`, `plots.py` | `fundoscope check-db`, `check-cdse`, `history <file>` | in progress |
+| `cli` | `checks.py`, `history.py`, `plots.py`, `labels.py` | `fundoscope check-db`, `check-cdse`, `history <file>`, `labels check` | in progress |
 
 ## Definition of done (every submodule)
 

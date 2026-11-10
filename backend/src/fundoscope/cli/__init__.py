@@ -1,6 +1,7 @@
 """Command-line interface: `uv run fundoscope <command>`.
 
-Submodules: `checks` (setup checks), `history` (a parcel's history), `plots` (PNG charts).
+Submodules: `checks` (setup checks), `history` (a parcel's history), `plots` (PNG charts),
+`labels` (checks the labeled parcels).
 """
 
 import argparse
@@ -9,6 +10,7 @@ from pathlib import Path
 
 from fundoscope.cli.checks import check_cdse, check_db
 from fundoscope.cli.history import run_history
+from fundoscope.cli.labels import run_labels_check
 from fundoscope.sentinel import ARCHIVE_START
 
 
@@ -46,11 +48,22 @@ def main(argv: list[str] | None = None) -> int:
         help="output folder (default data/private/history/<parcel name>)",
     )
 
+    labels = sub.add_parser("labels", help="work with the labeled training parcels")
+    labels_sub = labels.add_subparsers(dest="labels_command", required=True)
+    labels_check = labels_sub.add_parser(
+        "check", help="check the labels against FR-06 and count the parcels per crop class"
+    )
+    labels_check.add_argument(
+        "file", type=Path, nargs="?", default=None, help="default data/labels/labels.gpkg"
+    )
+
     args = parser.parse_args(argv)
     if args.command == "check-db":
         return check_db()
     if args.command == "check-cdse":
         return check_cdse()
+    if args.command == "labels":
+        return run_labels_check(args.file)
     if args.command == "history":
         return run_history(args.file, args.start, args.end, args.out, active_area=args.active_area)
     return 1

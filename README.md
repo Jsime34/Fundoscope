@@ -81,6 +81,14 @@ uv run fundoscope history path/to/parcel.kml
 
 It prints the campaign table and saves `campaigns.csv`, `observations.csv`, `series.csv`, and an NDVI chart to `data/private/history/<parcel>/` (git-ignored). A full 8-year history of a small parcel costs about 20 Copernicus processing units (the free tier gives 10,000 per month). Add `--active-area` for the % of the area actively farmed per campaign; it downloads monthly composites through openEO and costs about 60 more openEO credits (also 10,000 free per month).
 
+Check the labeled training parcels before spending any satellite quota on them:
+
+```
+uv run fundoscope labels check
+```
+
+It reads `data/labels/labels.gpkg` (git-ignored), counts the parcels per region and crop class, and lists what still has to be fixed.
+
 ## Data sources and attribution
 
 - Contains modified Copernicus Sentinel data [2018–2026], processed through the Copernicus Data Space Ecosystem.
