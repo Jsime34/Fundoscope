@@ -66,7 +66,8 @@ def main(argv: list[str] | None = None) -> int:
         "--used-credits",
         type=float,
         default=None,
-        help="openEO credits already used this month (Copernicus dashboard); "
+        help="openEO credits already used this month (Billing tab of the openEO Algorithm "
+        "Plaza); "
         "the run stops before 80 %% of the month's quota",
     )
     labels_extract.add_argument(

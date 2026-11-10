@@ -77,8 +77,8 @@ def run_labels_extract(
     limits = [cap, None if used_credits is None else batch_cap(used_credits)]
     if limits == [None, None]:
         print(
-            "Pass --used-credits N, the openEO credits already used this month (see the "
-            "Copernicus Data Space dashboard), or --cap N."
+            "Pass --used-credits N, the openEO credits already used this month (Billing tab "
+            "of https://marketplace-portal.dataspace.copernicus.eu), or --cap N."
         )
         return 1
     limit = min(value for value in limits if value is not None)

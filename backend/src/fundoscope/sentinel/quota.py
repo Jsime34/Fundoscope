@@ -4,7 +4,8 @@ The free tier gives 10,000 openEO credits and 10,000 Sentinel Hub processing uni
 reset on the 1st. Batch work (the training-data extraction, the valley refresh) may use at
 most 80 % of the month's credits, so parcel reports and the demo always keep a reserve. The
 quota is shared by everything that uses the account, so the caller passes what was already
-used this month (shown on the Copernicus Data Space dashboard).
+used this month (openEO Algorithm Plaza, Billing tab:
+https://marketplace-portal.dataspace.copernicus.eu/billing).
 """
 
 FREE_CREDITS_PER_MONTH = 10_000

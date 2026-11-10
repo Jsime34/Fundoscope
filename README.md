@@ -96,7 +96,7 @@ uv run fundoscope labels extract --dry-run
 uv run fundoscope labels extract --used-credits 1200
 ```
 
-`--used-credits` is what your account already used this month (Copernicus Data Space dashboard): the run stops before the month's usage reaches 80 % of the free 10,000 credits. Add `--cap N` to spend at most N credits. Each parcel and campaign is saved to `data/features/pixels/` (git-ignored) as soon as it finishes, so running the command again continues where it stopped.
+`--used-credits` is what your account already used this month: the openEO credits on the Billing tab of the [openEO Algorithm Plaza](https://marketplace-portal.dataspace.copernicus.eu/billing), not the processing units on the Sentinel Hub dashboard; the run stops before the month's usage reaches 80 % of the free 10,000 credits. Add `--cap N` to spend at most N credits. Each parcel and campaign is saved to `data/features/pixels/` (git-ignored) as soon as it finishes, so running the command again continues where it stopped.
 
 ## Data sources and attribution
 
