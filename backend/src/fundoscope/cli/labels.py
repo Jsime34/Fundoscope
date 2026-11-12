@@ -1,7 +1,8 @@
 """`fundoscope labels check` and `labels extract`: the labeled parcels of the crop model (FR-06).
 
 `check` lists what still has to be fixed; `extract` downloads the training pixels of every
-label within the monthly free quota (FR-25).
+label within the monthly free quota (FR-25), then lists the labels whose NDVI curve doesn't
+fit their crop, for review before training.
 """
 
 from collections.abc import Callable
@@ -9,6 +10,7 @@ from pathlib import Path
 
 from fundoscope.config import get_settings
 from fundoscope.ingest import LabelError, LabelReport, check_labels, read_labels
+from fundoscope.ml import MONTHS, REVIEWED_NOTE, CurveCheck, check_curves
 from fundoscope.pipeline import (
     DONE,
     FAILED,
@@ -19,6 +21,7 @@ from fundoscope.pipeline import (
     TaskResult,
     extract_training_data,
     extraction_tasks,
+    load_training_pixels,
     pending,
 )
 from fundoscope.pipeline.parcel_history import CompositeFetcher
@@ -26,6 +29,7 @@ from fundoscope.sentinel import CreditBudget, batch_cap
 
 MAX_IDS_SHOWN = 6
 TYPICAL_REQUEST_CREDITS = 7.0  # measured: one campaign of the 3 ha demo parcel
+CURVE_LABEL_WIDTH = 30  # parcel, campaign, and crop before the 12 monthly values
 
 
 def run_labels_check(file: Path | None) -> int:
@@ -49,10 +53,14 @@ def run_labels_extract(
     out: Path | None = None,
     fetch: CompositeFetcher | None = None,
 ) -> int:
-    """Download the training pixels of every label within the quota. Returns the exit code.
+    """Download the training pixels of every label within the quota, then check them.
 
     The run may spend at most 80 % of the month's free openEO credits minus `used_credits`,
-    and at most `cap` credits; at least one of the two is required.
+    and at most `cap` credits; at least one of the two is required when something is left
+    to download. Once every pixel is saved, each label is compared with its NDVI curve.
+
+    Returns:
+        The exit code: 0 when every pixel is saved and every mismatch was reviewed.
     """
     path = file or default_labels_file()
     try:
@@ -72,24 +80,30 @@ def run_labels_extract(
         f"{len(tasks)} parcel-campaigns: {len(tasks) - len(todo)} already saved, "
         f"{len(todo)} to download (about {estimate:,.0f} openEO credits)."
     )
-    if dry_run or not todo:
+    if dry_run:
         return 0
-    limits = [cap, None if used_credits is None else batch_cap(used_credits)]
-    if limits == [None, None]:
-        print(
-            "Pass --used-credits N, the openEO credits already used this month (Billing tab "
-            "of https://marketplace-portal.dataspace.copernicus.eu), or --cap N."
-        )
-        return 1
-    limit = min(value for value in limits if value is not None)
-    print(f"This run may spend up to {limit:,.0f} credits.")
+    if todo:
+        limits = [cap, None if used_credits is None else batch_cap(used_credits)]
+        if limits == [None, None]:
+            print(
+                "Pass --used-credits N, the openEO credits already used this month (Billing "
+                "tab of https://marketplace-portal.dataspace.copernicus.eu), or --cap N."
+            )
+            return 1
+        limit = min(value for value in limits if value is not None)
+        print(f"This run may spend up to {limit:,.0f} credits.")
 
-    options = {"fetch": fetch} if fetch else {}
-    extraction = extract_training_data(
-        tasks, out, CreditBudget(limit), on_result=_progress(len(todo)), **options
-    )
-    print(format_extraction(extraction, out))
-    return 0 if extraction.remaining == 0 else 1
+        options = {"fetch": fetch} if fetch else {}
+        extraction = extract_training_data(
+            tasks, out, CreditBudget(limit), on_result=_progress(len(todo)), **options
+        )
+        print(format_extraction(extraction, out))
+        if extraction.remaining:
+            return 1
+
+    check = check_curves(load_training_pixels(tasks, out), labels)
+    print(format_curve_check(check))
+    return 0 if not check.unreviewed else 1
 
 
 def default_labels_file() -> Path:
@@ -137,6 +151,42 @@ def format_extraction(extraction: Extraction, out: Path) -> str:
     return "\n".join(lines)
 
 
+def format_curve_check(check: CurveCheck) -> str:
+    """The NDVI check for the terminal: each unreviewed mismatch with its 12 monthly values."""
+    if not check.mismatches:
+        return (
+            f"\nNDVI check: all {check.checked} labeled campaigns fit their crop. "
+            "Ready for training."
+        )
+    unreviewed = check.unreviewed
+    lines = [
+        f"\nNDVI check: {len(check.mismatches)} of {check.checked} labeled campaigns don't fit "
+        f"their crop; {len(check.mismatches) - len(unreviewed)} reviewed, "
+        f"{len(unreviewed)} to review."
+    ]
+    if unreviewed:
+        lines += [
+            "Monthly NDVI (median of the parcel's pixels):",
+            "",
+            " " * CURVE_LABEL_WIDTH + "".join(f"{month.capitalize():>5}" for month in MONTHS),
+        ]
+        for item in unreviewed:
+            label = f"{item.parcel_id} {item.campaign} {item.crop}"
+            values = "".join(f"{value:5.2f}" for value in item.ndvi)
+            lines += [f"{label:<{CURVE_LABEL_WIDTH}}{values}", f"    {item.problem}"]
+        lines += [
+            "",
+            "Review each one in QGIS: correct its crop or campaigns, delete it, or keep it and",
+            f'write "{REVIEWED_NOTE} <your reason>" in its notes. Then run this command again.',
+        ]
+    reviewed = [f"{m.parcel_id} {m.campaign}" for m in check.mismatches if m.reviewed]
+    if reviewed:
+        lines.append(f"Reviewed and kept: {_shorten(reviewed)}")
+    if not unreviewed:
+        lines.append("Ready for training.")
+    return "\n".join(lines)
+
+
 def _progress(total: int) -> Callable[[TaskResult], None]:
     finished = 0
 
@@ -156,8 +206,9 @@ def _progress(total: int) -> Callable[[TaskResult], None]:
 
 def format_report(report: LabelReport) -> str:
     regions = ", ".join(f"{code} {count}" for code, count in report.regions.items())
+    satellite = f" ({report.from_satellite} from satellite images)" if report.from_satellite else ""
     lines = [
-        f"{report.total} labels: {report.training_parcels} for training, "
+        f"{report.total} labels: {report.training_parcels} for training{satellite}, "
         f"{report.field_verified} field-verified (kept for the final test)",
         f"Training parcels per region: {regions or 'none'}",
         "",

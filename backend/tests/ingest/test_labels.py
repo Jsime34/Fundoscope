@@ -14,6 +14,8 @@ from fundoscope.ingest import (
 )
 
 LINK = "https://maps.app.goo.gl/abc123"
+# An idle field labeled from satellite images, with a Google Maps pin as the link.
+SATELLITE = {"source": "satellite", "crop": "fallow", "evidence": f"SAT 2024-08 bare {LINK}"}
 
 
 def square(index: int = 0, side: float = 100.0, shift: float = 0.0):
@@ -65,6 +67,19 @@ def test_a_complete_set_is_ready():
     assert report.unmet == []
     assert (report.total, report.training_parcels, report.field_verified) == (151, 150, 1)
     assert report.regions == {"ARE": 50, "ICA": 50, "LLI": 50}
+
+
+def test_satellite_images_can_label_idle_fields():
+    rows = complete_rows()
+    for row in rows[-16:-1]:  # the 15 fallow labels
+        row.update(SATELLITE)
+
+    report = check_labels(table(rows))
+
+    assert report.ok, report.problems
+    assert (report.training_parcels, report.from_satellite) == (150, 15)
+    fallow = next(item for item in report.classes if item.name == "fallow/bare")
+    assert fallow.parcels == 15
 
 
 def test_field_verified_parcels_never_count_for_training():
@@ -151,6 +166,12 @@ def test_the_final_test_needs_field_verified_parcels():
         ({"evidence": f"SV 2024-13 mature {LINK}"}, "a real month"),
         ({"evidence": f"SV 2024-08 ripe {LINK}"}, "crop stage must be"),
         ({"source": "field", "evidence": ""}, "needs a note in evidence"),
+        ({"evidence": f"SAT 2024-08 bare {LINK}"}, "needs photo month and crop stage"),
+        ({**SATELLITE, "crop": "grape"}, "use source satellite only for fallow"),
+        ({**SATELLITE, "evidence": f"SV 2024-08 bare {LINK}"}, "SAT YYYY-MM bare <link>"),
+        ({**SATELLITE, "evidence": LINK}, "SAT YYYY-MM bare <link>"),
+        ({**SATELLITE, "evidence": f"SAT 2024-08 young {LINK}"}, "crop stage must be one of bare"),
+        ({**SATELLITE, "evidence": f"SAT 2018-02 bare {LINK}"}, "image month must be a real month"),
         ({"geometry": None}, "has no polygon"),
         ({"geometry": square(side=50.0)}, "the minimum is 0.5 ha"),
         ({"geometry": box(10, 10, 11, 11)}, "outside Peru"),

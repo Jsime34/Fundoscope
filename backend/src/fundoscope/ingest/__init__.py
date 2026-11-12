@@ -9,7 +9,9 @@ Submodules: `utm` (zones and reprojection), `readers` (file formats), `parcels` 
 
 from fundoscope.ingest.labels import (
     CROP_CLASSES,
+    FALLOW,
     MODEL_CLASSES,
+    TRAINING_SOURCES,
     ClassCount,
     LabelError,
     LabelReport,
@@ -28,9 +30,11 @@ from fundoscope.ingest.utm import from_utm, to_utm, utm_epsg, zone_label
 
 __all__ = [
     "CROP_CLASSES",
+    "FALLOW",
     "MAX_AREA_HA",
     "MIN_AREA_HA",
     "MODEL_CLASSES",
+    "TRAINING_SOURCES",
     "ClassCount",
     "LabelError",
     "LabelReport",

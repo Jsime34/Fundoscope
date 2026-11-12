@@ -100,15 +100,17 @@ class FakeCampaignComposites:
 
     `fail` maps a campaign's first day ("2024-08-01") to how many requests fail before one
     succeeds; `cloudy` campaigns have no clear pixel; `bands` overrides the bands returned;
-    `drop_month` leaves that month (0 = August) out of the result.
+    `drop_month` leaves that month (0 = August) out of the result; parcels for which
+    `bare(geometry_utm)` is true stay bare soil all year (NDVI about 0.09).
     """
 
-    def __init__(self, fail=None, cloudy=(), bands=None, drop_month=None):
+    def __init__(self, fail=None, cloudy=(), bands=None, drop_month=None, bare=None):
         self.calls: list[tuple] = []
         self.fail = dict(fail or {})
         self.cloudy = set(cloudy)
         self.bands = bands
         self.drop_month = drop_month
+        self.bare = bare
 
     def __call__(self, geometry_utm, epsg, start, end, bands):
         self.calls.append((geometry_utm.bounds, start))
@@ -124,6 +126,8 @@ class FakeCampaignComposites:
             months = months.delete(self.drop_month)
         data = np.full((len(months), len(bands), len(y), len(x)), 0.1)
         data[:, bands.index("B08")] = 0.45  # NDVI about 0.64: a growing crop
+        if self.bare and self.bare(geometry_utm):
+            data[:, bands.index("B08")] = 0.12
         if start.isoformat() in self.cloudy:
             data[:] = np.nan
         stack = xr.DataArray(

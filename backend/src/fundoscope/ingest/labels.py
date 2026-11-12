@@ -2,7 +2,11 @@
 
 Reads the GeoPackage drawn in QGIS (layer `labels`, WGS84 lon/lat) and checks each label and
 the whole set against FR-06. Comparing each label with its NDVI curve needs the composites,
-so that check belongs to the training-data step, not here.
+so that check is `fundoscope.ml.label_curves`, run after the training pixels are saved.
+
+Sources: `photo` (a Street View panorama, the main source), `satellite` (only for fallow/bare:
+a field bare on the satellite images all campaign, because idle fields next to Street View
+roads are rare), and `field` (the partner's records, kept for the final test).
 """
 
 import re
@@ -76,7 +80,9 @@ CROP_CLASSES = {
     ),
 }
 
-SOURCES = ("photo", "field")
+PHOTO, SATELLITE, FIELD = "photo", "satellite", "field"
+SOURCES = (PHOTO, SATELLITE, FIELD)
+TRAINING_SOURCES = (PHOTO, SATELLITE)
 CONFIDENCES = ("high", "medium")
 # young = planted or growing; mature = full or harvest; bare = no crop.
 STAGES = ("young", "mature", "bare")
@@ -90,7 +96,8 @@ FIRST_PHOTO_MONTH = "2018-08"
 MAX_OVERLAP_SHARE = 0.1
 
 EVIDENCE_FORMAT = "SV YYYY-MM <stage> <link>"
-_PHOTO_EVIDENCE = re.compile(r"SV (\d{4}-(\d{2})) (\w+) https://\S+")
+SATELLITE_EVIDENCE_FORMAT = "SAT YYYY-MM bare <link>"
+_EVIDENCE = re.compile(r"(SV|SAT) (\d{4}-(\d{2})) (\w+) https://\S+")
 _PARCEL_ID = re.compile(r"[A-Z]{3}-\d{4}")
 _CAMPAIGN = re.compile(r"(\d{4})/(\d{2})")
 
@@ -129,7 +136,7 @@ class LabelReport:
 
     Attributes:
         total: rows in the file.
-        training_parcels: photo labels with a known crop.
+        training_parcels: Street View and satellite labels with a known crop.
         field_verified: labels with `source = field`, reserved for the final test.
         regions: training parcels per region code, largest first.
         classes: every model class, largest first.
@@ -144,6 +151,7 @@ class LabelReport:
     classes: list[ClassCount]
     problems: dict[str, list[str]]
     unmet: list[str]
+    from_satellite: int = 0  # training parcels with `source = satellite`
 
     @property
     def ok(self) -> bool:
@@ -194,10 +202,10 @@ def check_labels(labels: gpd.GeoDataFrame) -> LabelReport:
 
     sources = labels["source"].map(_text)
     crops = labels["crop"].map(_text)
-    training = labels[(sources == "photo") & crops.isin(list(CROP_CLASSES))]
+    training = labels[sources.isin(TRAINING_SOURCES) & crops.isin(list(CROP_CLASSES))]
     regions = Counter(_text(value) for value in training["region"] if _text(value))
     classes = _class_counts(_text(value) for value in training["crop"])
-    field_verified = int((sources == "field").sum())
+    field_verified = int((sources == FIELD).sum())
 
     return LabelReport(
         total=len(labels),
@@ -207,6 +215,7 @@ def check_labels(labels: gpd.GeoDataFrame) -> LabelReport:
         classes=classes,
         problems=dict(problems),
         unmet=_unmet(len(training), field_verified, regions, classes),
+        from_satellite=int((sources[training.index] == SATELLITE).sum()),
     )
 
 
@@ -225,7 +234,7 @@ def _label_problems(row: Any, id_counts: Counter[str]) -> list[str]:
         found.append(f"source must be one of {', '.join(SOURCES)}")
     if _text(row.confidence) not in CONFIDENCES:
         found.append(f"confidence must be one of {', '.join(CONFIDENCES)}")
-    found += _evidence_problems(source, _text(row.evidence))
+    found += _evidence_problems(source, _text(row.evidence), crop)
     return found
 
 
@@ -258,19 +267,33 @@ def _campaign_year(campaign: str) -> int | None:
     return int(match[1])
 
 
-def _evidence_problems(source: str, evidence: str) -> list[str]:
-    if source == "field":
+def _evidence_problems(source: str, evidence: str, crop: str) -> list[str]:
+    if source == FIELD:
         return [] if evidence else ["a field-verified label needs a note in evidence"]
-    if source != "photo":
-        return []
-    match = _PHOTO_EVIDENCE.fullmatch(evidence)
-    if match is None:
-        return [f'evidence must read "{EVIDENCE_FORMAT}" (needs photo month and crop stage)']
+    if source == PHOTO:
+        return _photo_evidence_problems(evidence, "SV", "photo")
+    if source == SATELLITE:
+        found = _photo_evidence_problems(evidence, "SAT", "image")
+        if CROP_CLASSES.get(crop) not in (None, FALLOW):
+            found.append(
+                "satellite images can't show the crop: use source satellite only for fallow"
+            )
+        return found
+    return []
+
+
+def _photo_evidence_problems(evidence: str, prefix: str, kind: str) -> list[str]:
+    match = _EVIDENCE.fullmatch(evidence)
+    if match is None or match[1] != prefix:
+        if prefix == "SV":
+            return [f'evidence must read "{EVIDENCE_FORMAT}" (needs photo month and crop stage)']
+        return [f'evidence must read "{SATELLITE_EVIDENCE_FORMAT}" (month of the first image)']
     found = []
-    if not 1 <= int(match[2]) <= 12 or match[1] < FIRST_PHOTO_MONTH:
-        found.append("photo month must be a real month, August 2018 or later")
-    if match[3] not in STAGES:
-        found.append(f"crop stage must be one of {', '.join(STAGES)}")
+    if not 1 <= int(match[3]) <= 12 or match[2] < FIRST_PHOTO_MONTH:
+        found.append(f"{kind} month must be a real month, August 2018 or later")
+    stages = STAGES if prefix == "SV" else ("bare",)
+    if match[4] not in stages:
+        found.append(f"crop stage must be one of {', '.join(stages)}")
     return found
 
 

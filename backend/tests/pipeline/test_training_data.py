@@ -14,6 +14,7 @@ from fundoscope.pipeline import (
     TOO_NARROW,
     extract_training_data,
     extraction_tasks,
+    load_training_pixels,
     pending,
 )
 from fundoscope.sentinel import CreditBudget
@@ -54,6 +55,15 @@ def test_one_task_per_photo_label_and_campaign():
     assert tasks[0].epsg == 32718
     assert tasks[0].geometry_utm.area == pytest.approx(40_000, rel=1e-3)  # meters
     assert tasks[0].file_name == "ICA-0001_2023-24.csv"
+
+
+def test_satellite_labels_train_too():
+    rows = labels(
+        {"parcel_id": "ICA-0001", "crop": "fallow", "source": "satellite",
+         "from_campaign": "2024/25", "to_campaign": "2024/25", "geometry": field(0)},
+    )  # fmt: skip
+
+    assert [task.parcel_id for task in extraction_tasks(rows)] == ["ICA-0001"]
 
 
 def test_saves_up_to_50_interior_pixels_per_parcel_and_campaign(tmp_path, make_campaign_composites):
@@ -189,3 +199,29 @@ def test_unusable_composites_fail_but_count_their_credits(tmp_path, make_campaig
 
     assert (result.status, result.credits) == (FAILED, 7.0)
     assert "missing the bands" in result.error
+
+
+def test_loads_the_saved_pixels_of_the_tasks(tmp_path, make_campaign_composites):
+    tasks = extraction_tasks(two_labels())
+    fake = make_campaign_composites(cloudy={"2023-08-01"})
+    extract_training_data(tasks[1:], tmp_path, CreditBudget(1_000), fetch=fake)
+    (tmp_path / "pixels" / "ICA-0099_2024-25.csv").write_text("stale file of a deleted label")
+
+    loaded = load_training_pixels(tasks, tmp_path)
+
+    assert list(loaded.columns) == ["parcel_id", "campaign", "x", "y", *FEATURE_COLUMNS]
+    assert loaded.groupby(["parcel_id", "campaign"]).size().to_dict() == {
+        ("ICA-0001", "2024/25"): MAX_PIXELS_PER_SAMPLE,
+        ("ICA-0002", "2024/25"): MAX_PIXELS_PER_SAMPLE,
+    }
+
+
+def test_loading_before_any_download_gives_an_empty_table(tmp_path, make_campaign_composites):
+    tasks = extraction_tasks(two_labels())
+    fake = make_campaign_composites(cloudy={"2023-08-01", "2024-08-01"})
+    extract_training_data(tasks[:1], tmp_path, CreditBudget(1_000), fetch=fake)
+
+    loaded = load_training_pixels(tasks, tmp_path)
+
+    assert loaded.empty
+    assert list(loaded.columns) == ["parcel_id", "campaign", "x", "y", *FEATURE_COLUMNS]

@@ -28,11 +28,11 @@ Rules, checked automatically by `uv run lint-imports` (contracts in `backend/pyp
 | `ingest` | `utm.py`, `readers.py`, `parcels.py`, `labels.py` | `utm_epsg`, `to_utm`, `from_utm`, `read_features`, `parse_parcel`, `Parcel`, `ParcelFeature`, `ParcelError`, `read_labels`, `check_labels`, `LabelReport`, `LabelError`, `CROP_CLASSES` | **done** |
 | `sentinel` | `cdse.py`, `evalscripts.py`, `statistical.py`, `composites.py`, `quota.py` | `sh_config`, `fetch_daily_stats`, `DailyStats`, `fetch_monthly_composites`, `MonthlyComposites`, `batch_cap`, `CreditBudget` | **done** |
 | `timeseries` | `campaigns.py`, `indices.py`, `clean.py`, `metrics.py`, `active_area.py` | `campaign_of`, `ndvi`, `ndwi`, `clean_series`, `campaign_metrics`, `active_fraction`, `max_ndvi_composite` | **done** |
-| `ml` | `features.py`, `train_rf.py`, `train_transformer.py`, `predict.py`, `evaluate.py` | `pixel_features`, `training_sample`, `FEATURE_COLUMNS`, `FeatureError`; training, prediction | in progress (`features` done) |
+| `ml` | `features.py`, `label_curves.py`, `train_rf.py`, `train_transformer.py`, `predict.py`, `evaluate.py` | `pixel_features`, `training_sample`, `FEATURE_COLUMNS`, `FeatureError`, `check_curves`, `CurveCheck`; training, prediction | in progress (`features` and `label_curves` done) |
 | `analysis` | `flags.py`, `neighbors.py`, `water.py`, `report.py` | flags, neighbor band, water check, report | planned (week 7) |
 | `valley` | `classify.py`, `areas.py`, `render.py` | pixel classes, hectares with CI, map image | planned (week 10) |
 | `db` | `models.py`, `session.py`, `repositories.py` | tables and queries | planned (week 3) |
-| `pipeline` | `parcel_history.py`, `training_data.py`, `analyze_parcel.py`, `refresh_valley.py` | `parcel_history`, `ParcelHistory`, `extract_training_data`, `extraction_tasks`; end-to-end jobs | in progress (`parcel_history` and `training_data` done, no DB cache yet) |
+| `pipeline` | `parcel_history.py`, `training_data.py`, `analyze_parcel.py`, `refresh_valley.py` | `parcel_history`, `ParcelHistory`, `extract_training_data`, `extraction_tasks`, `load_training_pixels`; end-to-end jobs | in progress (`parcel_history` and `training_data` done, no DB cache yet) |
 | `api` | `main.py`, `routes/`, `schemas.py`, `worker.py` | REST endpoints | started (`/health`) |
 | `cli` | `checks.py`, `history.py`, `plots.py`, `labels.py` | `fundoscope check-db`, `check-cdse`, `history <file>`, `labels check`, `labels extract` | in progress |
 

@@ -57,7 +57,9 @@ def main(argv: list[str] | None = None) -> int:
         "file", type=Path, nargs="?", default=None, help="default data/labels/labels.gpkg"
     )
     labels_extract = labels_sub.add_parser(
-        "extract", help="download the training pixels of every label (uses openEO credits)"
+        "extract",
+        help="download the training pixels of every label (uses openEO credits), then "
+        "check each label against its NDVI curve",
     )
     labels_extract.add_argument(
         "file", type=Path, nargs="?", default=None, help="default data/labels/labels.gpkg"

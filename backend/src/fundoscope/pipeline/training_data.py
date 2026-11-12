@@ -1,9 +1,9 @@
 """Training data for the crop model: composites -> pixel features per label (FR-06, FR-25).
 
-For every labeled parcel and campaign (photo labels only: the field-verified parcels are kept
-for the final test), download the campaign's monthly composites, keep the pixels at least
-15 m inside the parcel, compute their 150 features, and save up to 50 of them in
-`<out>/pixels/<parcel>_<campaign>.csv`. A saved file means "done", so a second run continues
+For every labeled parcel and campaign (Street View and satellite labels; the field-verified
+parcels are kept for the final test), download the campaign's monthly composites, keep the
+pixels at least 15 m inside the parcel, compute their 150 features, and save up to 50 of them
+in `<out>/pixels/<parcel>_<campaign>.csv`. A saved file means "done", so a second run continues
 where the first stopped. Every request is logged with its credits in
 `<out>/extraction_log.csv`, and no request starts once it could pass the budget's cap.
 
@@ -22,8 +22,9 @@ import geopandas as gpd
 import pandas as pd
 from shapely.geometry.base import BaseGeometry
 
-from fundoscope.ingest import ParcelFeature, validate_parcel
+from fundoscope.ingest import TRAINING_SOURCES, ParcelFeature, validate_parcel
 from fundoscope.ml import (
+    FEATURE_COLUMNS,
     INTERIOR_BUFFER_M,
     MONTHS,
     FeatureError,
@@ -116,12 +117,12 @@ class Extraction:
 
 
 def extraction_tasks(labels: gpd.GeoDataFrame) -> list[Task]:
-    """One task per photo label (WGS84 geometry) and campaign, in label order.
+    """One task per training label (WGS84 geometry) and campaign, in label order.
 
     Expects labels that passed `fundoscope.ingest.check_labels`.
     """
     tasks = []
-    for row in labels[labels["source"] == "photo"].itertuples(index=False):
+    for row in labels[labels["source"].isin(TRAINING_SOURCES)].itertuples(index=False):
         parcel = validate_parcel([ParcelFeature(None, row.geometry)])
         for year in range(parse_campaign(row.from_campaign), parse_campaign(row.to_campaign) + 1):
             campaign = campaign_of(date(year, 8, 1))
@@ -132,6 +133,23 @@ def extraction_tasks(labels: gpd.GeoDataFrame) -> list[Task]:
 def pending(tasks: list[Task], out_dir: Path) -> list[Task]:
     """The tasks without a saved file in `out_dir/pixels`."""
     return [task for task in tasks if not (out_dir / "pixels" / task.file_name).exists()]
+
+
+def load_training_pixels(tasks: list[Task], out_dir: Path) -> pd.DataFrame:
+    """The saved pixels of `tasks`: `parcel_id`, `campaign`, `x`, `y` (UTM m), and the features.
+
+    Tasks without a file (not downloaded yet, or too narrow) and empty files (no clear
+    pixels) add no rows. Files of labels no longer in `tasks` are ignored.
+    """
+    tables = [
+        pd.read_csv(path, dtype={"parcel_id": str, "campaign": str})
+        for path in (out_dir / "pixels" / task.file_name for task in tasks)
+        if path.exists()
+    ]
+    tables = [table for table in tables if not table.empty]
+    if not tables:
+        return pd.DataFrame(columns=["parcel_id", "campaign", "x", "y", *FEATURE_COLUMNS])
+    return pd.concat(tables, ignore_index=True)
 
 
 def extract_training_data(

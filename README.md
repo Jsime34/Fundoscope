@@ -89,6 +89,8 @@ uv run fundoscope labels check
 
 It reads `data/labels/labels.gpkg` (git-ignored), counts the parcels per region and crop class, and lists what still has to be fixed.
 
+Each label has a `source`. Most come from Street View (`photo`, evidence `SV YYYY-MM <stage> <link>`). Fallow/bare labels may also come from satellite images (`satellite`, evidence `SAT YYYY-MM bare <link to a map pin>`), because idle fields next to Street View roads are rare; the report counts them apart. Both train the model. The partner's field records (`field`) are kept for the final test.
+
 Then download the training pixels of every label (monthly composites through openEO, about 7 credits per parcel and campaign):
 
 ```
@@ -97,6 +99,8 @@ uv run fundoscope labels extract --used-credits 1200
 ```
 
 `--used-credits` is what your account already used this month: the openEO credits on the Billing tab of the [openEO Algorithm Plaza](https://marketplace-portal.dataspace.copernicus.eu/billing), not the processing units on the Sentinel Hub dashboard; the run stops before the month's usage reaches 80 % of the free 10,000 credits. Add `--cap N` to spend at most N credits. Each parcel and campaign is saved to `data/features/pixels/` (git-ignored) as soon as it finishes, so running the command again continues where it stopped.
+
+Once every pixel is saved, the same command compares each label with its NDVI curve (the median of its pixels, August to July) and lists the ones that don't fit their crop: a fallow/bare campaign where a crop grew (NDVI above 0.4), a crop that was never green, or trees, alfalfa, or grape near bare soil (NDVI below 0.25) for longer than they should be. Review each one in QGIS: correct its crop or campaigns, delete it, or keep it and write `NDVI ok: <your reason>` in its notes. Run `uv run fundoscope labels extract` again to see what is left; when nothing is left to download, it needs no `--used-credits` and spends no credits. It exits with 0 only when every mismatch was reviewed.
 
 ## Data sources and attribution
 

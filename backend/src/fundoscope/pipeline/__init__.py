@@ -20,6 +20,7 @@ from fundoscope.pipeline.training_data import (
     TaskResult,
     extract_training_data,
     extraction_tasks,
+    load_training_pixels,
     pending,
 )
 
@@ -35,6 +36,7 @@ __all__ = [
     "TaskResult",
     "extract_training_data",
     "extraction_tasks",
+    "load_training_pixels",
     "parcel_history",
     "pending",
 ]

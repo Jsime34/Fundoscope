@@ -7,7 +7,13 @@ from fundoscope.cli.labels import default_labels_file, run_labels_check
 from fundoscope.ingest import from_utm, to_utm
 
 
-def write_labels(path, evidence="SV 2024-08 mature https://maps.app.goo.gl/abc", count=150):
+def write_labels(
+    path, evidence="SV 2024-08 mature https://maps.app.goo.gl/abc", count=150, satellite=False
+):
+    """`count` training labels (the last 15 fallow) and 1 field-verified one.
+
+    With `satellite`, the fallow labels come from satellite images instead of Street View.
+    """
     center = to_utm(Point(-75.73, -14.07), 32718)
     regions = ["ARE", "ICA", "LLI"]
     crops = ["grape"] * (count - 15) + ["fallow"] * 15
@@ -28,6 +34,9 @@ def write_labels(path, evidence="SV 2024-08 mature https://maps.app.goo.gl/abc",
         for i, crop in enumerate(crops)
     ]
     rows[0] = rows[0] | {"source": "field", "evidence": "Family records"}
+    if satellite:
+        pin = {"source": "satellite", "evidence": "SAT 2024-08 bare https://maps.app.goo.gl/pin"}
+        rows[-15:] = [row | pin for row in rows[-15:]]
     extra = rows[1] | {
         "parcel_id": "ARE-0999",
         "region": "ARE",
@@ -49,6 +58,14 @@ def test_ready_labels_exit_with_success(tmp_path, capsys):
     assert "151 labels: 150 for training, 1 field-verified" in printed
     assert "Ready for the training-data step." in printed
     assert "Fix these labels" not in printed
+
+
+def test_satellite_labels_are_counted_apart(tmp_path, capsys):
+    path = tmp_path / "labels.gpkg"
+    write_labels(path, satellite=True)
+
+    assert run_labels_check(path) == 0
+    assert "150 for training (15 from satellite images)" in capsys.readouterr().out
 
 
 def test_problems_are_grouped_and_shortened(tmp_path, capsys):
