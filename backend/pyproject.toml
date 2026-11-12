@@ -27,6 +27,7 @@ dependencies = [
     "h5py>=3.10",
     "python-multipart>=0.0.9",
     "requests>=2.31",
+    "scikit-learn>=1.5",
 ]
 
 [project.scripts]

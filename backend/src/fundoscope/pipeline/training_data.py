@@ -182,7 +182,7 @@ def extract_training_data(
         running: dict[Future[TaskResult], float] = {}
         while todo or running:
             while todo and len(running) < workers and not (stopped_at_cap or stopped_by_failures):
-                if _too_narrow(todo[0]):
+                if too_narrow(todo[0]):
                     record(TaskResult(todo.popleft(), TOO_NARROW, 0, 0.0))
                     continue
                 hold = budget.reserve()
@@ -205,7 +205,8 @@ def extract_training_data(
     return Extraction(len(tasks), already_done, results, stopped_at_cap, stopped_by_failures)
 
 
-def _too_narrow(task: Task) -> bool:
+def too_narrow(task: Task) -> bool:
+    """True when no pixel lies 15 m inside the parcel: it is never downloaded."""
     return task.geometry_utm.buffer(-INTERIOR_BUFFER_M).area < PIXEL_AREA_M2
 
 

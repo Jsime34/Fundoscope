@@ -102,6 +102,14 @@ uv run fundoscope labels extract --used-credits 1200
 
 Once every pixel is saved, the same command compares each label with its NDVI curve (the median of its pixels, August to July) and lists the ones that don't fit their crop: a fallow/bare campaign where a crop grew (NDVI above 0.4), a crop that was never green, or trees, alfalfa, or grape near bare soil (NDVI below 0.25) for longer than they should be. Review each one in QGIS: correct its crop or campaigns, delete it, or keep it and write `NDVI ok: <your reason>` in its notes. Run `uv run fundoscope labels extract` again to see what is left; when nothing is left to download, it needs no `--used-credits` and spends no credits. It exits with 0 only when every mismatch was reviewed.
 
+Then train the crop model:
+
+```
+uv run fundoscope model train --report ../docs/eval/rf_cv.md
+```
+
+It compares a few Random Forest settings by 5-fold cross-validation grouped by parcel (every fold is scored on parcels the model never saw), refits the best one on all training parcels, and saves `rf_v1.joblib`, `model_card.json`, and the report `rf_cv.md` to `models/` (git-ignored). It takes about a minute per setting. It refuses to train while a label check or an NDVI mismatch is pending. The field-verified parcels are never used here: they are scored once, with the final model. The latest report is [docs/eval/rf_cv.md](docs/eval/rf_cv.md).
+
 ## Data sources and attribution
 
 - Contains modified Copernicus Sentinel data [2018–2026], processed through the Copernicus Data Space Ecosystem.

@@ -1,7 +1,8 @@
 """Command-line interface: `uv run fundoscope <command>`.
 
 Submodules: `checks` (setup checks), `history` (a parcel's history), `plots` (PNG charts),
-`labels` (checks the labeled parcels and downloads their training pixels).
+`labels` (checks the labeled parcels and downloads their training pixels), `model` (trains
+the crop model).
 """
 
 import argparse
@@ -11,6 +12,7 @@ from pathlib import Path
 from fundoscope.cli.checks import check_cdse, check_db
 from fundoscope.cli.history import run_history
 from fundoscope.cli.labels import run_labels_check, run_labels_extract
+from fundoscope.cli.model import run_model_train
 from fundoscope.sentinel import ARCHIVE_START
 
 
@@ -79,6 +81,21 @@ def main(argv: list[str] | None = None) -> int:
         "--dry-run", action="store_true", help="only count what is left to download"
     )
 
+    model = sub.add_parser("model", help="the crop model")
+    model_sub = model.add_subparsers(dest="model_command", required=True)
+    model_train = model_sub.add_parser(
+        "train", help="cross-validate and train the crop model on the labeled parcels"
+    )
+    model_train.add_argument(
+        "file", type=Path, nargs="?", default=None, help="default data/labels/labels.gpkg"
+    )
+    model_train.add_argument(
+        "--out", type=Path, default=None, help="folder for the model files (default models/)"
+    )
+    model_train.add_argument(
+        "--report", type=Path, default=None, help="also save the report here (docs/eval/rf_cv.md)"
+    )
+
     args = parser.parse_args(argv)
     if args.command == "check-db":
         return check_db()
@@ -88,6 +105,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_labels_extract(args.file, args.used_credits, args.cap, dry_run=args.dry_run)
     if args.command == "labels":
         return run_labels_check(args.file)
+    if args.command == "model":
+        return run_model_train(args.file, args.out, args.report)
     if args.command == "history":
         return run_history(args.file, args.start, args.end, args.out, active_area=args.active_area)
     return 1

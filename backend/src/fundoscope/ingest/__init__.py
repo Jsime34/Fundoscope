@@ -10,6 +10,7 @@ Submodules: `utm` (zones and reprojection), `readers` (file formats), `parcels` 
 from fundoscope.ingest.labels import (
     CROP_CLASSES,
     FALLOW,
+    MIN_PARCELS_PER_CLASS,
     MODEL_CLASSES,
     TRAINING_SOURCES,
     ClassCount,
@@ -33,6 +34,7 @@ __all__ = [
     "FALLOW",
     "MAX_AREA_HA",
     "MIN_AREA_HA",
+    "MIN_PARCELS_PER_CLASS",
     "MODEL_CLASSES",
     "TRAINING_SOURCES",
     "ClassCount",

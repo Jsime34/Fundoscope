@@ -29,6 +29,7 @@ class Settings(BaseSettings):
 
     quota_pu_monthly_cap: int = 8000
     data_dir: Path = REPO_ROOT / "data"
+    models_dir: Path = REPO_ROOT / "models"
 
 
 @lru_cache

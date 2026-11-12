@@ -141,3 +141,56 @@ class FakeCampaignComposites:
 @pytest.fixture
 def make_campaign_composites() -> type[FakeCampaignComposites]:
     return FakeCampaignComposites
+
+
+TRAINING_LINK = "https://maps.app.goo.gl/abc"
+
+
+def ready_labels(narrow: bool = False):
+    """150 photo labels (135 grape, 15 fallow) from 3 regions that pass `labels check`, plus
+    one field-verified label. With `narrow`, the first grape parcel is too narrow to sample.
+    """
+    import geopandas as gpd
+
+    center = to_utm(Point(-75.73, -14.07), 32718)
+    regions = ["ARE", "ICA", "LLI"]
+
+    def square(i, width=100.0):
+        x = center.x + i * 500
+        return from_utm(box(x, center.y, x + width, center.y + 250), 32718)
+
+    rows = [
+        {
+            "parcel_id": f"{regions[i % 3]}-{i + 1:04d}",
+            "region": regions[i % 3],
+            "crop": "grape" if i < 135 else "fallow",
+            "from_campaign": "2024/25",
+            "to_campaign": "2024/25",
+            "source": "photo",
+            "confidence": "high",
+            "evidence": f"SV 2024-08 {'mature' if i < 135 else 'bare'} {TRAINING_LINK}",
+            "notes": None,
+            "geometry": square(i, 25.0 if narrow and i == 0 else 100.0),
+        }
+        for i in range(150)
+    ]
+    rows.append(rows[1] | {"parcel_id": "ICA-0999", "source": "field", "geometry": square(999)})
+    return gpd.GeoDataFrame(rows, geometry="geometry", crs=4326)
+
+
+@pytest.fixture(scope="session")
+def training_inputs(tmp_path_factory):
+    """Labels ready for training and their saved pixels: grape green, fallow bare all year.
+
+    Built once per test session (150 fake downloads). Returns (labels, features folder);
+    the first grape parcel is too narrow, so it has no pixels.
+    """
+    from fundoscope.pipeline import extract_training_data, extraction_tasks
+    from fundoscope.sentinel import CreditBudget
+
+    labels = ready_labels(narrow=True)
+    first_fallow_x = to_utm(Point(-75.73, -14.07), 32718).x + 135 * 500 - 250
+    fake = FakeCampaignComposites(bare=lambda geometry: geometry.bounds[0] > first_fallow_x)
+    features = tmp_path_factory.mktemp("features")
+    extract_training_data(extraction_tasks(labels), features, CreditBudget(10_000), fetch=fake)
+    return labels, features
