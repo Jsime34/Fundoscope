@@ -81,6 +81,8 @@ uv run fundoscope history path/to/parcel.kml
 
 It prints the campaign table and saves `campaigns.csv`, `observations.csv`, `series.csv`, and an NDVI chart to `data/private/history/<parcel>/` (git-ignored). A full 8-year history of a small parcel costs about 20 Copernicus processing units (the free tier gives 10,000 per month). Add `--active-area` for the % of the area actively farmed per campaign; it downloads monthly composites through openEO and costs about 60 more openEO credits (also 10,000 free per month). Once the crop model is trained (`fundoscope model train`, below), the same composites also give the predicted crop of each complete campaign and the model's confidence; a campaign still in progress has no crop yet. The web app shows the crop in its campaign table.
 
+Both the command and the web app list the flags of the parcel's own history, each with the values behind it: possible abandonment (a campaign's active area below half of the parcel's earlier median), crop change (both predictions at least 60 % sure; perennials removed or established are named), unusual campaign (integrated NDVI more than 2.5 robust standard deviations from the parcel's other campaigns), and low data (fewer than 15 clear dates).
+
 Check the labeled training parcels before spending any satellite quota on them:
 
 ```

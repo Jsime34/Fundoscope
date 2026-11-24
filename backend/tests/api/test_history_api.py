@@ -1,6 +1,7 @@
 """POST /api/history with fake downloaders, a temporary cache folder, and a fixed date."""
 
 import os
+from dataclasses import replace
 from datetime import date
 from types import SimpleNamespace
 
@@ -9,9 +10,11 @@ import pytest
 from fastapi.testclient import TestClient
 from sklearn.dummy import DummyClassifier
 
+from fundoscope.analysis import Flag
 from fundoscope.api import history as history_api
 from fundoscope.api.main import app
-from fundoscope.pipeline import MODEL_FILE
+from fundoscope.api.schemas import history_out
+from fundoscope.pipeline import MODEL_FILE, parcel_history
 from fundoscope.sentinel import SentinelError
 
 TODAY = date(2024, 7, 31)  # data from Aug 2018 to here: campaigns 2018/19 ... 2023/24
@@ -130,3 +133,22 @@ def test_the_model_is_loaded_once_and_again_after_retraining(tmp_path):
 def test_the_model_comes_from_the_models_folder(monkeypatch, tmp_path):
     monkeypatch.setattr(history_api, "get_settings", lambda: SimpleNamespace(models_dir=tmp_path))
     assert history_api.crop_model() is None
+
+
+def test_flags_are_part_of_the_answer(client, parcel_geojson, fake_fetch):
+    assert upload(client, parcel_geojson).json()["flags"] == []  # a steady parcel
+
+    history = parcel_history(parcel_geojson, "lote.geojson", end=TODAY, fetch=fake_fetch)
+    flag = Flag(
+        "2021/22", "possible abandonment", "Possible abandonment: ...", {"active_area": 0.2}
+    )
+    body = history_out(replace(history, flags=[flag])).model_dump()
+
+    assert body["flags"] == [
+        {
+            "campaign": "2021/22",
+            "kind": "possible abandonment",
+            "message": "Possible abandonment: ...",
+            "evidence": {"active_area": 0.2},
+        }
+    ]

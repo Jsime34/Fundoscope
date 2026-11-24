@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 import shapely
 
+from fundoscope.analysis import campaign_flags
 from fundoscope.ingest import ParcelError, parse_parcel
 from fundoscope.pipeline import parcel_history
 from fundoscope.pipeline.parcel_history import interior_stack
@@ -221,3 +222,20 @@ def test_the_model_sees_twelve_months_of_the_interior_pixels(parcel_geojson, mak
     interior = shapely.contains_xy(parcel.geometry_utm.buffer(-15), xx, yy)
     assert (clear == interior).all()  # pixels within 15 m of the edge are left out
     assert 0 < clear.sum() < clear.size
+
+
+def test_the_history_carries_the_flags_of_its_campaigns(
+    parcel_geojson, fake_fetch, fake_composites, fake_crop_model
+):
+    history = parcel_history(
+        parcel_geojson,
+        "lote.geojson",
+        date(2019, 8, 1),
+        date(2024, 7, 31),
+        fetch=fake_fetch,
+        fetch_composites=fake_composites,
+        model=fake_crop_model,
+    )
+
+    assert len(history.campaigns) == 5
+    assert history.flags == campaign_flags(history.campaigns) == []  # a steady parcel

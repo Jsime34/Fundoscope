@@ -1,10 +1,13 @@
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
 import fundoscope.cli
 import fundoscope.cli.history as history_cli
+from fundoscope.analysis import Flag
 from fundoscope.cli import main
-from fundoscope.cli.history import default_output_dir, run_history
+from fundoscope.cli.history import default_output_dir, format_flags, run_history
+from fundoscope.pipeline import parcel_history
 
 
 def test_history_prints_the_table_and_saves_all_files(tmp_path, parcel_geojson, fake_fetch, capsys):
@@ -138,3 +141,30 @@ def test_a_campaign_in_progress_shows_dashes_for_its_crop(
     row = next(line for line in capsys.readouterr().out.splitlines() if line.startswith("2023/24"))
     assert row.split()[-2:] == ["—", "—"]
     assert "None" not in row and "NaN" not in row
+
+
+def test_flags_are_printed_after_the_table(tmp_path, parcel_geojson, fake_fetch, capsys):
+    parcel_file = tmp_path / "lote.geojson"
+    parcel_file.write_bytes(parcel_geojson)
+
+    run_history(
+        parcel_file, date(2022, 8, 1), date(2024, 7, 31), tmp_path / "out", fetch=fake_fetch
+    )
+
+    assert "Flags: none." in capsys.readouterr().out
+
+
+def test_each_flag_is_one_line_with_its_campaign(parcel_geojson, fake_fetch):
+    history = parcel_history(
+        parcel_geojson, "lote.geojson", date(2022, 8, 1), date(2024, 7, 31), fetch=fake_fetch
+    )
+    flags = [
+        Flag("2022/23", "low data", "Low data: only 9 clear dates."),
+        Flag("2023/24", "crop change", "Crop change: onion, then alfalfa."),
+    ]
+
+    assert format_flags(replace(history, flags=flags)) == (
+        "Flags:\n"
+        "  2022/23  Low data: only 9 clear dates.\n"
+        "  2023/24  Crop change: onion, then alfalfa."
+    )

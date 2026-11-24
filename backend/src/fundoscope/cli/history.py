@@ -75,6 +75,7 @@ def run_history(
         print("\nNo clear satellite image in this period, so there is nothing to summarize.")
     else:
         print("\n" + format_table(history.campaigns, with_active_area=active_area))
+        print("\n" + format_flags(history))
 
     out = out or default_output_dir(history.parcel.name or file.stem)
     save_outputs(history, out)
@@ -106,6 +107,12 @@ def summary(history: ParcelHistory) -> str:
             "their active area is left empty."
         )
     return "\n".join(lines)
+
+
+def format_flags(history: ParcelHistory) -> str:
+    if not history.flags:
+        return "Flags: none."
+    return "\n".join(["Flags:", *(f"  {flag.campaign}  {flag.message}" for flag in history.flags)])
 
 
 def format_table(campaigns: pd.DataFrame, with_active_area: bool = True) -> str:

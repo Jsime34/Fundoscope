@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { fetchHistory } from "./api";
 import CampaignTable from "./components/CampaignTable";
+import FlagsPanel from "./components/FlagsPanel";
 import NdviChart from "./components/NdviChart";
 import ParcelMap from "./components/ParcelMap";
 import SummaryCard from "./components/SummaryCard";
@@ -113,6 +114,11 @@ export default function App() {
           <div className="card">
             <h2>Campaign by campaign</h2>
             <CampaignTable campaigns={result.campaigns} />
+          </div>
+
+          <div className="card">
+            <h2>Flags</h2>
+            <FlagsPanel flags={result.flags ?? []} />
           </div>
         </main>
       )}

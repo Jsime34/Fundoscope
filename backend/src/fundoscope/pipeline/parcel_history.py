@@ -16,13 +16,14 @@ There is no database yet, so every run downloads again (about 20 processing unit
 
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 import pandas as pd
 import xarray as xr
 from shapely.geometry.base import BaseGeometry
 
+from fundoscope.analysis import Flag, campaign_flags
 from fundoscope.ingest import Parcel, parse_parcel
 from fundoscope.ml import (
     INTERIOR_BUFFER_M,
@@ -72,6 +73,8 @@ class ParcelHistory:
             predicted, e.g. a campaign in progress), and `crop_confidence` (0..1, or NaN).
         credits: openEO credits spent on composites (0 if active area was not requested).
         active_area_failures: campaigns whose composites could not be downloaded.
+        flags: abandonment, crop change, anomaly, and low-data flags, in campaign order
+            (see `analysis.flags`; abandonment and crop change need the composites).
     """
 
     parcel: Parcel
@@ -80,6 +83,7 @@ class ParcelHistory:
     campaigns: pd.DataFrame
     credits: float = 0.0
     active_area_failures: int = 0
+    flags: list[Flag] = field(default_factory=list)
 
 
 def parcel_history(
@@ -133,6 +137,7 @@ def parcel_history(
         campaigns=campaigns,
         credits=sum(area.credits for area in areas.values()),
         active_area_failures=sum(area.failed for area in areas.values()),
+        flags=campaign_flags(campaigns),
     )
 
 

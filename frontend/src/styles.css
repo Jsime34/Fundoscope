@@ -110,6 +110,15 @@ th { text-align: right; font-weight: 600; color: var(--ink-2); font-size: 12px; 
 td { text-align: right; padding: 9px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
 th:first-child, td:first-child { text-align: left; }
 tbody tr:hover { background: #f4f4f1; }
+.flags { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.flag { display: grid; grid-template-columns: 64px 1fr; gap: 12px; padding: 10px 12px; border-radius: 8px;
+  background: var(--warn-soft); border-left: 3px solid var(--warn); }
+.flag.minor { background: transparent; border-left-color: var(--grid); }
+.flag p { margin: 0; font-size: 14px; line-height: 1.45; }
+.flag-campaign { font-weight: 650; font-variant-numeric: tabular-nums; }
+.flag details { margin-top: 6px; }
+.flag summary { cursor: pointer; color: var(--ink-2); font-size: 12.5px; }
+.flag .facts { margin-top: 8px; font-size: 12.5px; }
 .crop { font-weight: 600; white-space: nowrap; }
 .crop .confidence { color: var(--muted); font-weight: 400; font-size: 12.5px; }
 .meter { display: inline-flex; align-items: center; gap: 8px; }

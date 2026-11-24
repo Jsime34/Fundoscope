@@ -46,6 +46,13 @@ class CampaignOut(BaseModel):
     crop_confidence: float | None = None  # 0..1
 
 
+class FlagOut(BaseModel):
+    campaign: str
+    kind: str  # "possible abandonment", "crop change", "perennial removed", ...
+    message: str  # one plain-language sentence
+    evidence: dict[str, float | int | str]  # the values behind the flag
+
+
 class SeriesPoint(BaseModel):
     date: date
     ndvi: float | None
@@ -61,6 +68,7 @@ class HistoryOut(BaseModel):
     parcel: ParcelOut
     summary: SummaryOut
     campaigns: list[CampaignOut]
+    flags: list[FlagOut] = []
     series: list[SeriesPoint]  # cleaned and smoothed, every 5 days
     observations: list[ObservationPoint]  # clear satellite dates actually used
 
@@ -104,6 +112,15 @@ def history_out(history: ParcelHistory) -> HistoryOut:
                 crop_confidence=_num(row["crop_confidence"]),
             )
             for label, row in history.campaigns.iterrows()
+        ],
+        flags=[
+            FlagOut(
+                campaign=flag.campaign,
+                kind=flag.kind,
+                message=flag.message,
+                evidence=flag.evidence,
+            )
+            for flag in history.flags
         ],
         series=[
             SeriesPoint(
