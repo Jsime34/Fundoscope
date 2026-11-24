@@ -10,8 +10,10 @@ the active threshold of FR-23 (NDVI 0.4):
 
 - fallow/bare: no month above 0.4, because a fallow campaign has no crop at all;
 - every crop: at least one month above 0.4;
-- trees (avocado, citrus, mango) and alfalfa: at most 2 months in a row near bare soil
-  (NDVI below 0.25); grape: at most 4, because pruned vines stay bare for a while.
+- trees (avocado, citrus, mango): at most 2 months in a row near bare soil (NDVI below 0.25);
+  grape: at most 4, because pruned vines stay bare for a while;
+- alfalfa: no month near bare soil. It is cut every few weeks but regrows from the crown, so
+  a monthly median below 0.25 means the field was plowed.
 """
 
 import re
@@ -27,7 +29,7 @@ from fundoscope.ml.features import MONTHS
 from fundoscope.timeseries import ACTIVE_NDVI_THRESHOLD
 
 BARE_SOIL_NDVI = 0.25
-MAX_BARE_MONTHS = {"avocado": 2, "citrus": 2, "mango": 2, "alfalfa": 2, "grape": 4}
+MAX_BARE_MONTHS = {"avocado": 2, "citrus": 2, "mango": 2, "alfalfa": 0, "grape": 4}
 REVIEWED_NOTE = "NDVI ok:"
 NDVI_COLUMNS = tuple(f"ndvi_{month}" for month in MONTHS)
 
@@ -125,6 +127,8 @@ def curve_problem(crop_class: str, ndvi: Sequence[float] | NDArray[np.float64]) 
     if limit is not None:
         start, length = _longest_run(ndvi < BARE_SOIL_NDVI)
         if length > limit:
+            if length == 1:
+                return f"near bare soil in {_month(start)}"
             return (
                 f"near bare soil for {length} months in a row "
                 f"({_month(start)} to {_month(start + length - 1)})"

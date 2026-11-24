@@ -49,6 +49,8 @@ def bare_for(months, first, last):
         ("avocado", curve(bare_months=(4, 5, 6)), bare_for(3, "Dec", "Feb")),
         ("citrus", curve(bare_months=(0, 1, 2)), bare_for(3, "Aug", "Oct")),
         ("alfalfa", curve(bare_months=(9, 10, 11)), bare_for(3, "May", "Jul")),
+        ("alfalfa", curve(bare_months=(4,)), "near bare soil in Dec"),  # alfalfa regrows
+        ("alfalfa", curve(bare_months=(4,), low=0.3), None),  # a cut, not a plowed field
         ("grape", curve(bare_months=(2, 3, 4, 5)), None),  # pruning
         ("grape", curve(bare_months=(2, 3, 4, 5, 6)), bare_for(5, "Oct", "Feb")),
         ("avocado", curve(bare_months=(1, 2, 3, 6), low=0.24), bare_for(3, "Sep", "Nov")),
