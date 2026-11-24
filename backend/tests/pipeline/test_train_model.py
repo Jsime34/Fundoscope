@@ -11,6 +11,7 @@ from fundoscope.pipeline import (
     REPORT_FILE,
     extraction_tasks,
     format_cv_report,
+    load_crop_model,
     load_training_pixels,
     train_crop_model,
 )
@@ -139,3 +140,10 @@ def test_unreviewed_ndvi_mismatches_are_refused(training_inputs, tmp_path):
 
     relabeled.loc[relabeled.parcel_id == "ICA-0002", "notes"] = "NDVI ok: checked"
     assert train(relabeled, features, tmp_path).card["data"]["reviewed_ndvi_mismatches"] == 1
+
+
+def test_the_saved_model_can_be_loaded_back(trained, tmp_path):
+    result, _ = trained
+
+    assert list(load_crop_model(result.folder).classes_) == ["fallow/bare", "grape"]
+    assert load_crop_model(tmp_path) is None  # not trained yet

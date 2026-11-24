@@ -53,13 +53,20 @@ class FakeComposites:
 
     `failures` maps a campaign's first day ("2022-08-01") to how many times its request
     should fail before succeeding, to test retries; `cloudy` lists campaigns (by first day)
-    with no clear pixel at all.
+    with no clear pixel at all. Every requested band is returned (B04 and B08 make the NDVI,
+    the others are 0.1), unless `only_bands` limits them.
     """
 
-    def __init__(self, failures: dict[str, int] | None = None, cloudy: set[str] | None = None):
+    def __init__(
+        self,
+        failures: dict[str, int] | None = None,
+        cloudy: set[str] | None = None,
+        only_bands: tuple[str, ...] | None = None,
+    ):
         self.calls: list[tuple] = []
         self.failures = dict(failures or {})
         self.cloudy = set(cloudy or ())  # campaign first days with no clear pixel at all
+        self.only_bands = only_bands
 
     def __call__(self, geometry_utm, epsg, start, end, bands):
         self.calls.append((start, end, bands))
@@ -76,12 +83,32 @@ class FakeComposites:
         nir[:, :, x < minx + 70] = 0.06  # NDVI ~0.09: bare soil in the western 7 columns
         if start.isoformat() in self.cloudy:
             red[:], nir[:] = np.nan, np.nan
+        returned = list(self.only_bands or bands)
+        layers = {"B04": red, "B08": nir}
         data = xr.DataArray(
-            np.stack([red, nir], axis=1),
+            np.stack([layers.get(name, np.full_like(red, 0.1)) for name in returned], axis=1),
             dims=("month", "band", "y", "x"),
-            coords={"month": months, "band": list(bands), "y": y, "x": x},
+            coords={"month": months, "band": returned, "y": y, "x": x},
         )
         return MonthlyComposites(data, epsg, credits=7.0)
+
+
+class FakeCropModel:
+    """Replaces the trained model: a pixel whose NDVI peak passes 0.4 is 90 % grape."""
+
+    classes_ = np.array(["fallow/bare", "grape"])
+
+    def predict_proba(self, features):
+        from fundoscope.ml import FEATURE_COLUMNS
+
+        green = features[:, FEATURE_COLUMNS.index("ndvi_peak")] > 0.4
+        grape = np.where(green, 0.9, 0.1)
+        return np.column_stack([1 - grape, grape])
+
+
+@pytest.fixture
+def fake_crop_model() -> FakeCropModel:
+    return FakeCropModel()
 
 
 @pytest.fixture

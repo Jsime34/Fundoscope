@@ -29,6 +29,7 @@ from fundoscope.ml import (
     MIN_MACRO_F1,
     N_FOLDS,
     TARGET_MACRO_F1,
+    CropModel,
     CrossValidation,
     TrainingError,
     best,
@@ -117,6 +118,12 @@ def train_crop_model(
     (out_dir / CARD_FILE).write_text(json.dumps(card, indent=2), encoding="utf-8")
     (out_dir / REPORT_FILE).write_text(format_cv_report(card), encoding="utf-8")
     return TrainedModel(chosen, compared, card, out_dir)
+
+
+def load_crop_model(folder: Path) -> CropModel | None:
+    """The crop model saved in `folder` by `train_crop_model`; None if there is none yet."""
+    path = folder / MODEL_FILE
+    return joblib.load(path) if path.exists() else None
 
 
 def model_card(

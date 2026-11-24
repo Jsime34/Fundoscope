@@ -16,6 +16,7 @@ from fundoscope.pipeline.train_model import (
     REPORT_FILE,
     TrainedModel,
     format_cv_report,
+    load_crop_model,
     train_crop_model,
 )
 from fundoscope.pipeline.training_data import (
@@ -50,6 +51,7 @@ __all__ = [
     "extract_training_data",
     "extraction_tasks",
     "format_cv_report",
+    "load_crop_model",
     "load_training_pixels",
     "parcel_history",
     "pending",

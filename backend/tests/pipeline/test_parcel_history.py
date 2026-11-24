@@ -2,9 +2,12 @@ from datetime import date
 
 import numpy as np
 import pytest
+import shapely
 
-from fundoscope.ingest import ParcelError
+from fundoscope.ingest import ParcelError, parse_parcel
 from fundoscope.pipeline import parcel_history
+from fundoscope.pipeline.parcel_history import interior_stack
+from fundoscope.sentinel import COMPOSITE_BANDS
 
 
 def test_history_chains_ingest_sentinel_and_timeseries(parcel_geojson, fake_fetch):
@@ -124,3 +127,97 @@ def test_a_fully_cloudy_campaign_is_unknown_not_a_failure(
     assert np.isnan(history.campaigns.loc["2022/23", "active_area"])
     assert history.active_area_failures == 0  # openEO delivered; there was just nothing clear
     assert history.credits == 7.0
+
+
+# Inside the 15 m margin the fake parcel has about 26 x 26 pixels, 5 of the 26 columns bare
+# (the square is slightly tilted after the trip through WGS84, hence the tolerance).
+GRAPE_CONFIDENCE = pytest.approx((21 * 0.9 + 5 * 0.1) / 26, abs=0.01)
+
+
+def test_with_a_model_each_campaign_gets_its_crop(
+    parcel_geojson, fake_fetch, fake_composites, fake_crop_model
+):
+    history = parcel_history(
+        parcel_geojson,
+        "lote.geojson",
+        date(2022, 8, 1),
+        date(2024, 7, 31),
+        fetch=fake_fetch,
+        fetch_composites=fake_composites,
+        model=fake_crop_model,
+    )
+
+    assert history.campaigns["crop"].tolist() == ["grape", "grape"]
+    assert history.campaigns["crop_confidence"].tolist() == [GRAPE_CONFIDENCE] * 2
+    assert history.campaigns["active_area"].to_numpy() == pytest.approx([1 - BARE_SHARE] * 2)
+    assert {call[2] for call in fake_composites.calls} == {COMPOSITE_BANDS}  # one request each
+    assert history.credits == 14.0
+
+
+def test_a_campaign_in_progress_gets_no_crop(
+    parcel_geojson, fake_fetch, fake_composites, fake_crop_model
+):
+    history = parcel_history(
+        parcel_geojson,
+        "lote.geojson",
+        date(2022, 8, 1),
+        date(2023, 12, 31),  # 2023/24 has only August to December so far
+        fetch=fake_fetch,
+        fetch_composites=fake_composites,
+        model=fake_crop_model,
+    )
+
+    assert history.campaigns["crop"].tolist() == ["grape", None]
+    assert np.isnan(history.campaigns.loc["2023/24", "crop_confidence"])
+
+
+def test_without_a_model_there_is_no_crop(parcel_geojson, fake_fetch, fake_composites):
+    history = parcel_history(
+        parcel_geojson,
+        "lote.geojson",
+        date(2022, 8, 1),
+        date(2024, 7, 31),
+        fetch=fake_fetch,
+        fetch_composites=fake_composites,
+    )
+
+    assert history.campaigns["crop"].isna().all()
+    assert history.campaigns["crop_confidence"].isna().all()
+
+
+def test_composites_without_every_band_give_no_crop_but_still_the_active_area(
+    parcel_geojson, fake_fetch, make_composites, fake_crop_model
+):
+    fake = make_composites(only_bands=("B04", "B08"))
+
+    history = parcel_history(
+        parcel_geojson,
+        "lote.geojson",
+        date(2022, 8, 1),
+        date(2023, 7, 31),
+        fetch=fake_fetch,
+        fetch_composites=fake,
+        model=fake_crop_model,
+    )
+
+    assert history.campaigns["crop"].tolist() == [None]
+    assert history.campaigns["active_area"].to_numpy() == pytest.approx([1 - BARE_SHARE])
+
+
+def test_the_model_sees_twelve_months_of_the_interior_pixels(parcel_geojson, make_composites):
+    parcel = parse_parcel(parcel_geojson, "lote.geojson")
+    fake = make_composites()
+    composites = fake(
+        parcel.geometry_utm, parcel.utm_epsg, date(2023, 8, 1), date(2024, 1, 31), bands=("B04",)
+    )
+
+    stack = interior_stack(composites, parcel.geometry_utm, "2023/24")
+
+    assert len(stack["month"]) == 12
+    assert str(stack["month"].to_numpy()[0])[:10] == "2023-08-01"
+    assert np.isnan(stack.sel(band="B04")[6:]).all()  # February to July are not there yet
+    clear = ~np.isnan(stack.sel(band="B04")[0].to_numpy())
+    xx, yy = np.meshgrid(stack["x"].to_numpy(), stack["y"].to_numpy())
+    interior = shapely.contains_xy(parcel.geometry_utm.buffer(-15), xx, yy)
+    assert (clear == interior).all()  # pixels within 15 m of the edge are left out
+    assert 0 < clear.sum() < clear.size

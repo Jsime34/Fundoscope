@@ -1,12 +1,17 @@
 """POST /api/history with fake downloaders, a temporary cache folder, and a fixed date."""
 
+import os
 from datetime import date
+from types import SimpleNamespace
 
+import joblib
 import pytest
 from fastapi.testclient import TestClient
+from sklearn.dummy import DummyClassifier
 
 from fundoscope.api import history as history_api
 from fundoscope.api.main import app
+from fundoscope.pipeline import MODEL_FILE
 from fundoscope.sentinel import SentinelError
 
 TODAY = date(2024, 7, 31)  # data from Aug 2018 to here: campaigns 2018/19 ... 2023/24
@@ -17,6 +22,7 @@ def client(tmp_path, fake_fetch, fake_composites):
     app.dependency_overrides = {
         history_api.daily_fetcher: lambda: fake_fetch,
         history_api.composites_fetcher: lambda: fake_composites,
+        history_api.crop_model: lambda: None,
         history_api.cache_folder: lambda: tmp_path / "cache",
         history_api.today: lambda: TODAY,
     }
@@ -92,3 +98,35 @@ def test_a_satellite_failure_is_a_502(client, parcel_geojson):
     response = upload(client, parcel_geojson)
     assert response.status_code == 502
     assert "satellite service failed" in response.json()["detail"]
+
+
+def test_with_a_model_each_campaign_has_its_crop(client, parcel_geojson, fake_crop_model):
+    app.dependency_overrides[history_api.crop_model] = lambda: fake_crop_model
+
+    campaigns = upload(client, parcel_geojson).json()["campaigns"]
+
+    assert [c["crop"] for c in campaigns] == ["grape"] * 6
+    assert all(0.7 < c["crop_confidence"] < 0.8 for c in campaigns)
+
+
+def test_without_a_model_the_crop_is_empty(client, parcel_geojson):
+    campaigns = upload(client, parcel_geojson).json()["campaigns"]
+
+    assert {(c["crop"], c["crop_confidence"]) for c in campaigns} == {(None, None)}
+
+
+def test_the_model_is_loaded_once_and_again_after_retraining(tmp_path):
+    assert history_api.cached_model(tmp_path) is None
+    joblib.dump(DummyClassifier().fit([[0], [1]], ["grape", "fallow/bare"]), tmp_path / MODEL_FILE)
+
+    first = history_api.cached_model(tmp_path)
+    assert list(first.classes_) == ["fallow/bare", "grape"]
+    assert history_api.cached_model(tmp_path) is first
+
+    os.utime(tmp_path / MODEL_FILE, (1, 1))  # a retrained model has a new date
+    assert history_api.cached_model(tmp_path) is not first
+
+
+def test_the_model_comes_from_the_models_folder(monkeypatch, tmp_path):
+    monkeypatch.setattr(history_api, "get_settings", lambda: SimpleNamespace(models_dir=tmp_path))
+    assert history_api.crop_model() is None

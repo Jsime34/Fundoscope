@@ -5,7 +5,8 @@ Features, Random Forest, Transformer comparison, evaluation, prediction (FR-06, 
 
 Submodules: `features` (the 150 features of a pixel and campaign), `label_curves` (compares
 every label with its NDVI curve before training), `train_rf` (grouped cross-validation and the
-final Random Forest), `evaluate` (macro-F1, F1 per class, confusion matrix).
+final Random Forest), `evaluate` (macro-F1, F1 per class, confusion matrix), `predict` (the
+crop of a parcel's campaign).
 """
 
 from fundoscope.ml.evaluate import (
@@ -35,6 +36,7 @@ from fundoscope.ml.label_curves import (
     check_curves,
     curve_problem,
 )
+from fundoscope.ml.predict import CropModel, CropPrediction, predict_crop
 from fundoscope.ml.train_rf import (
     BROADER_CLASS,
     FOREST,
@@ -65,6 +67,8 @@ __all__ = [
     "N_FOLDS",
     "REVIEWED_NOTE",
     "TARGET_MACRO_F1",
+    "CropModel",
+    "CropPrediction",
     "CrossValidation",
     "CurveCheck",
     "CurveMismatch",
@@ -81,6 +85,7 @@ __all__ = [
     "grouped_folds",
     "parcel_prediction",
     "pixel_features",
+    "predict_crop",
     "score",
     "training_sample",
     "training_table",

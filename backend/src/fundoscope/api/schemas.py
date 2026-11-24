@@ -42,6 +42,8 @@ class CampaignOut(BaseModel):
     coverage: float
     complete: bool
     active_area: float | None
+    crop: str | None = None  # predicted model class; None for a campaign in progress
+    crop_confidence: float | None = None  # 0..1
 
 
 class SeriesPoint(BaseModel):
@@ -98,6 +100,8 @@ def history_out(history: ParcelHistory) -> HistoryOut:
                 coverage=float(row["coverage"]),
                 complete=bool(row["complete"]),
                 active_area=_num(row["active_area"]),
+                crop=row["crop"] if isinstance(row["crop"], str) else None,
+                crop_confidence=_num(row["crop_confidence"]),
             )
             for label, row in history.campaigns.iterrows()
         ],

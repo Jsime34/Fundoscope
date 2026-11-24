@@ -9,7 +9,8 @@ import pandas as pd
 from fundoscope.cli.plots import history_chart
 from fundoscope.config import get_settings
 from fundoscope.ingest import ParcelError, zone_label
-from fundoscope.pipeline import ParcelHistory, parcel_history
+from fundoscope.ml import CropModel
+from fundoscope.pipeline import ParcelHistory, load_crop_model, parcel_history
 from fundoscope.pipeline.parcel_history import CompositeFetcher, Fetcher
 from fundoscope.sentinel import SentinelError, fetch_monthly_composites
 
@@ -22,6 +23,8 @@ TABLE_HEADERS = {
     "coverage": "coverage",
     "complete": "complete",
     "active_area": "active",
+    "crop": "crop",
+    "crop_confidence": "confidence",
 }
 
 
@@ -34,11 +37,13 @@ def run_history(
     active_area: bool = False,
     fetch: Fetcher | None = None,
     fetch_composites: CompositeFetcher | None = None,
+    model: CropModel | None = None,
 ) -> int:
     """Download, compute, print, and save a parcel's history. Returns the exit code.
 
     With `active_area`, also downloads monthly composites (about 7 openEO credits and
-    30 seconds per campaign, two campaigns at a time) to compute % active area.
+    30 seconds per campaign, two campaigns at a time) to compute % active area and, with the
+    model saved by `fundoscope model train` (or `model`), the crop of each campaign.
     """
     try:
         data = file.read_bytes()
@@ -51,6 +56,9 @@ def run_history(
         options["fetch"] = fetch
     if active_area:
         options["fetch_composites"] = fetch_composites or fetch_monthly_composites
+        options["model"] = model or load_crop_model(get_settings().models_dir)
+        if options["model"] is None:
+            print("No crop model yet (run `fundoscope model train`), so no crop per campaign.")
     extra = " and monthly composites" if active_area else ""
     print(f"Downloading Sentinel-2 statistics{extra} for {file.name} ...")
     try:
@@ -104,7 +112,12 @@ def format_table(campaigns: pd.DataFrame, with_active_area: bool = True) -> str:
     table = campaigns.rename(columns=TABLE_HEADERS)
     if not with_active_area:
         table = table.drop(columns="active", errors="ignore")
+    if not with_active_area or table["crop"].isna().all():
+        table = table.drop(columns=["crop", "confidence"])
+    else:
+        table["crop"] = table["crop"].fillna("—")  # a campaign in progress has no crop yet
     return table.to_string(
+        na_rep="—",  # pandas skips the formatters for empty values
         formatters={
             "peak NDVI": "{:.2f}".format,
             "mean NDVI": "{:.2f}".format,
@@ -112,8 +125,9 @@ def format_table(campaigns: pd.DataFrame, with_active_area: bool = True) -> str:
             "integrated": "{:.0f}".format,
             "coverage": "{:.0%}".format,
             "complete": lambda done: "yes" if done else "partial",
-            "active": lambda share: "—" if pd.isna(share) else f"{share:.0%}",
-        }
+            "active": "{:.0%}".format,
+            "confidence": "{:.0%}".format,
+        },
     )
 
 

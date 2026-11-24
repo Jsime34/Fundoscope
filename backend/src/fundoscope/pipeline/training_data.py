@@ -26,12 +26,11 @@ from fundoscope.ingest import TRAINING_SOURCES, ParcelFeature, validate_parcel
 from fundoscope.ml import (
     FEATURE_COLUMNS,
     INTERIOR_BUFFER_M,
-    MONTHS,
     FeatureError,
     pixel_features,
     training_sample,
 )
-from fundoscope.pipeline.parcel_history import CompositeFetcher
+from fundoscope.pipeline.parcel_history import CompositeFetcher, interior_stack
 from fundoscope.sentinel import (
     COMPOSITE_BANDS,
     CreditBudget,
@@ -216,10 +215,8 @@ def _extract(task: Task, fetch: CompositeFetcher, out_dir: Path) -> TaskResult:
         composites = fetch(task.geometry_utm, task.epsg, start, end, bands=COMPOSITE_BANDS)
     except SentinelError as exc:
         return TaskResult(task, FAILED, 0, 0.0, str(exc))
-    # A month without any image may be missing from the result; give it an empty slot.
-    months = pd.date_range(start, periods=len(MONTHS), freq="MS")
-    interior = task.geometry_utm.buffer(-INTERIOR_BUFFER_M)
-    stack = composites.masked_to(interior).data.reindex(month=months)
+    # A month without any image may be missing from the result; it gets an empty slot.
+    stack = interior_stack(composites, task.geometry_utm, task.campaign)
     try:
         features = pixel_features(stack)
     except FeatureError as exc:

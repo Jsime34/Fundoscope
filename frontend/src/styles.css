@@ -110,6 +110,8 @@ th { text-align: right; font-weight: 600; color: var(--ink-2); font-size: 12px; 
 td { text-align: right; padding: 9px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
 th:first-child, td:first-child { text-align: left; }
 tbody tr:hover { background: #f4f4f1; }
+.crop { font-weight: 600; white-space: nowrap; }
+.crop .confidence { color: var(--muted); font-weight: 400; font-size: 12.5px; }
 .meter { display: inline-flex; align-items: center; gap: 8px; }
 .meter .track { display: block; width: 70px; height: 6px; background: var(--grid); border-radius: 4px; overflow: hidden; }
 .meter .fill { display: block; height: 100%; background: var(--brand); border-radius: 4px; }

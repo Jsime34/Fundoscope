@@ -41,7 +41,8 @@ def main(argv: list[str] | None = None) -> int:
     history.add_argument(
         "--active-area",
         action="store_true",
-        help="also compute %% active area per campaign (about 7 openEO credits per campaign)",
+        help="also download monthly composites: %% active area and, with a trained model, the "
+        "crop of each campaign (about 7 openEO credits per campaign)",
     )
     history.add_argument(
         "--out",

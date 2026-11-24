@@ -2,6 +2,7 @@ from datetime import date
 from pathlib import Path
 
 import fundoscope.cli
+import fundoscope.cli.history as history_cli
 from fundoscope.cli import main
 from fundoscope.cli.history import default_output_dir, run_history
 
@@ -60,8 +61,8 @@ def test_main_passes_parsed_arguments(monkeypatch):
     }
 
 
-def test_history_with_active_area_shows_the_column_and_the_credits(
-    tmp_path, parcel_geojson, fake_fetch, fake_composites, capsys
+def test_history_with_active_area_shows_the_column_the_crop_and_the_credits(
+    tmp_path, parcel_geojson, fake_fetch, fake_composites, fake_crop_model, capsys
 ):
     parcel_file = tmp_path / "lote.geojson"
     parcel_file.write_bytes(parcel_geojson)
@@ -73,11 +74,38 @@ def test_history_with_active_area_shows_the_column_and_the_credits(
         active_area=True,
         fetch=fake_fetch,
         fetch_composites=fake_composites,
+        model=fake_crop_model,
     )
     printed = capsys.readouterr().out
     assert code == 0
     assert "+ 14 openEO credits" in printed
     assert "active" in printed and "77%" in printed  # 23 of 30 pixel columns are green
+    header = next(line for line in printed.splitlines() if "peak NDVI" in line)
+    assert "crop" in header and "confidence" in header
+    assert printed.count("grape") == 2 and "75%" in printed
+
+
+def test_without_a_trained_model_the_crop_is_left_out(
+    monkeypatch, tmp_path, parcel_geojson, fake_fetch, fake_composites, capsys
+):
+    monkeypatch.setattr(history_cli, "load_crop_model", lambda folder: None)
+    parcel_file = tmp_path / "lote.geojson"
+    parcel_file.write_bytes(parcel_geojson)
+
+    run_history(
+        parcel_file,
+        date(2022, 8, 1),
+        date(2024, 7, 31),
+        tmp_path / "out",
+        active_area=True,
+        fetch=fake_fetch,
+        fetch_composites=fake_composites,
+    )
+
+    printed = capsys.readouterr().out
+    assert "No crop model yet (run `fundoscope model train`)" in printed
+    header = next(line for line in printed.splitlines() if "peak NDVI" in line)
+    assert "active" in header and "crop" not in header
 
 
 def test_history_without_active_area_hides_the_column(tmp_path, parcel_geojson, fake_fetch, capsys):
@@ -88,3 +116,25 @@ def test_history_without_active_area_hides_the_column(tmp_path, parcel_geojson, 
     )
     table_header = [line for line in capsys.readouterr().out.splitlines() if "peak NDVI" in line][0]
     assert "active" not in table_header
+
+
+def test_a_campaign_in_progress_shows_dashes_for_its_crop(
+    tmp_path, parcel_geojson, fake_fetch, fake_composites, fake_crop_model, capsys
+):
+    parcel_file = tmp_path / "lote.geojson"
+    parcel_file.write_bytes(parcel_geojson)
+
+    run_history(
+        parcel_file,
+        date(2022, 8, 1),
+        date(2023, 12, 31),  # 2023/24 has only August to December so far
+        tmp_path / "out",
+        active_area=True,
+        fetch=fake_fetch,
+        fetch_composites=fake_composites,
+        model=fake_crop_model,
+    )
+
+    row = next(line for line in capsys.readouterr().out.splitlines() if line.startswith("2023/24"))
+    assert row.split()[-2:] == ["—", "—"]
+    assert "None" not in row and "NaN" not in row
