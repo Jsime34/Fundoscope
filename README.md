@@ -110,7 +110,7 @@ Then train the crop model:
 uv run fundoscope model train --report ../docs/eval/rf_cv.md
 ```
 
-It compares a few Random Forest settings by 5-fold cross-validation grouped by parcel (every fold is scored on parcels the model never saw), refits the best one on all training parcels, and saves `rf_v1.joblib`, `model_card.json`, and the report `rf_cv.md` to `models/` (git-ignored). It takes about a minute per setting. It refuses to train while a label check or an NDVI mismatch is pending. The field-verified parcels are never used here: they are scored once, with the final model. The latest report is [docs/eval/rf_cv.md](docs/eval/rf_cv.md).
+It compares a few Random Forest settings by 5-fold cross-validation grouped by parcel (every fold is scored on parcels the model never saw), refits the best one on all training parcels, and saves `rf_v1.joblib`, `model_card.json`, and the report `rf_cv.md` to `models/` (git-ignored). It takes about a minute per setting. With the chosen setting it then trains the season-to-date models for the valley count: one per campaign length, from August alone to August-June, saved in `models/season/` (about 3 minutes in all). Their scores by month are in the same report. It refuses to train while a label check or an NDVI mismatch is pending. The field-verified parcels are never used here: they are scored once, with the final model. The latest report is [docs/eval/rf_cv.md](docs/eval/rf_cv.md).
 
 ## Data sources and attribution
 

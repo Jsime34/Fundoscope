@@ -85,7 +85,9 @@ def main(argv: list[str] | None = None) -> int:
     model = sub.add_parser("model", help="the crop model")
     model_sub = model.add_subparsers(dest="model_command", required=True)
     model_train = model_sub.add_parser(
-        "train", help="cross-validate and train the crop model on the labeled parcels"
+        "train",
+        help="cross-validate and train the crop model and its season-to-date models on the "
+        "labeled parcels",
     )
     model_train.add_argument(
         "file", type=Path, nargs="?", default=None, help="default data/labels/labels.gpkg"

@@ -3,7 +3,8 @@
 Features, Random Forest, Transformer comparison, evaluation, prediction (FR-06, FR-16). Weeks
 5-6, 11.
 
-Submodules: `features` (the 150 features of a pixel and campaign), `label_curves` (compares
+Submodules: `features` (the 150 features of a pixel and campaign, or fewer for its
+first months), `label_curves` (compares
 every label with its NDVI curve before training), `train_rf` (grouped cross-validation and the
 final Random Forest), `evaluate` (macro-F1, F1 per class, confusion matrix), `predict` (the
 crop of a parcel's campaign).
@@ -23,7 +24,9 @@ from fundoscope.ml.features import (
     MAX_PIXELS_PER_SAMPLE,
     MONTHS,
     FeatureError,
+    feature_columns,
     pixel_features,
+    season_to_date,
     training_sample,
 )
 from fundoscope.ml.label_curves import (
@@ -83,12 +86,14 @@ __all__ = [
     "check_curves",
     "cross_validate",
     "curve_problem",
+    "feature_columns",
     "fit",
     "grouped_folds",
     "parcel_prediction",
     "pixel_features",
     "predict_crop",
     "score",
+    "season_to_date",
     "training_sample",
     "training_table",
 ]

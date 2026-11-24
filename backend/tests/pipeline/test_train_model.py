@@ -4,15 +4,18 @@ import json
 import joblib
 import pytest
 
-from fundoscope.ml import FEATURE_COLUMNS, TrainingError
+from fundoscope.ml import FEATURE_COLUMNS, TrainingError, feature_columns
 from fundoscope.pipeline import (
     CARD_FILE,
     MODEL_FILE,
     REPORT_FILE,
+    SEASON_DIR,
+    SEASON_MONTHS,
     extraction_tasks,
     format_cv_report,
     load_crop_model,
     load_training_pixels,
+    season_model_file,
     train_crop_model,
 )
 
@@ -25,26 +28,75 @@ SMALL_FOREST = {
 GRID = ({"min_samples_leaf": 1}, {"min_samples_leaf": 5})
 
 
-def train(labels, features, out, **options):
-    return train_crop_model(labels, features, out, grid=GRID, forest=SMALL_FOREST, **options)
+def train(labels, features, out, season_months=(), **options):
+    return train_crop_model(
+        labels,
+        features,
+        out,
+        grid=GRID,
+        forest=SMALL_FOREST,
+        season_months=season_months,
+        **options,
+    )
 
 
 @pytest.fixture(scope="module")
 def trained(training_inputs, tmp_path_factory):
     labels, features = training_inputs
     seen = []
-    result = train(labels, features, tmp_path_factory.mktemp("models"), on_result=seen.append)
+    result = train(
+        labels,
+        features,
+        tmp_path_factory.mktemp("models"),
+        season_months=(1, 4),
+        on_result=seen.append,
+        on_season=lambda months, cv: seen.append((months, cv)),
+    )
     return result, seen
 
 
 def test_compares_every_setting_and_saves_the_best(trained):
     result, seen = trained
 
-    assert seen == result.compared
+    assert seen[:2] == result.compared
     assert [r.settings["min_samples_leaf"] for r in result.compared] == [1, 5]
     assert result.chosen is result.compared[0]  # both perfect: the first wins
     assert result.chosen.scores.macro_f1 == 1.0
-    assert {path.name for path in result.folder.iterdir()} == {MODEL_FILE, CARD_FILE, REPORT_FILE}
+    assert {path.name for path in result.folder.iterdir()} == {
+        MODEL_FILE, CARD_FILE, REPORT_FILE, SEASON_DIR,
+    }  # fmt: skip
+
+
+def test_season_to_date_models_use_the_chosen_setting(trained):
+    result, seen = trained
+
+    assert seen[2:] == [(1, result.season[1]), (4, result.season[4])]
+    assert {path.name for path in (result.folder / SEASON_DIR).iterdir()} == {
+        "rf_v1_to_aug.joblib", "rf_v1_to_nov.joblib",
+    }  # fmt: skip
+    for months, cv in result.season.items():
+        assert cv.settings == result.chosen.settings
+        assert cv.scores.macro_f1 == 1.0  # grape is green and fallow bare from August on
+        assert load_crop_model(result.folder, months).n_features_in_ == len(feature_columns(months))
+
+
+def test_season_to_date_models_are_in_the_card(trained):
+    result, _ = trained
+    [aug, nov] = result.card["season_to_date"]
+
+    assert (aug["months"], aug["through"], aug["file"]) == (1, "aug", "season/rf_v1_to_aug.joblib")
+    assert (nov["months"], nov["through"]) == (4, "nov")
+    assert nov["macro_f1"] == 1.0
+    assert nov["per_class_f1"] == {"fallow/bare": 1.0, "grape": 1.0}
+    assert nov["confusion"]["matrix"] == [[15, 0], [0, 134]]
+
+
+def test_season_to_date_model_files():
+    assert SEASON_MONTHS == tuple(range(1, 12))
+    assert season_model_file(1) == "rf_v1_to_aug.joblib"
+    assert season_model_file(11) == "rf_v1_to_jun.joblib"
+    with pytest.raises(ValueError, match="1 to 11 months"):
+        season_model_file(12)
 
 
 def test_the_saved_model_predicts_the_training_classes(trained, training_inputs):
@@ -91,6 +143,17 @@ def test_the_report_is_written_from_the_card(trained):
     assert "| min_samples_leaf=5 | 1.00 |" in report
     assert "satellite images" not in report
     assert "0 labels that didn't fit their NDVI curve" in report
+    assert "## Season-to-date models (FR-14)" in report
+    assert "| Months | August to | Macro-F1 | fallow/bare | grape |" in report
+    assert "| 1 | Aug | 1.00 | 1.00 | 1.00 |" in report
+    assert "| 4 | Nov | 1.00 | 1.00 | 1.00 |" in report
+    assert "| 12 | Jul | 1.00 | 1.00 | 1.00 |" in report  # the full model
+
+
+def test_the_report_has_no_season_section_without_season_models(trained):
+    card = copy.deepcopy(trained[0].card)
+    card["season_to_date"] = []
+    assert "Season-to-date" not in format_cv_report(card)
 
 
 @pytest.mark.parametrize(
@@ -147,3 +210,6 @@ def test_the_saved_model_can_be_loaded_back(trained, tmp_path):
 
     assert list(load_crop_model(result.folder).classes_) == ["fallow/bare", "grape"]
     assert load_crop_model(tmp_path) is None  # not trained yet
+    assert load_crop_model(result.folder, 2) is None  # no model for August-September
+    with pytest.raises(ValueError, match="1 to 11 months"):
+        load_crop_model(result.folder, 13)

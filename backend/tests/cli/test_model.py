@@ -26,6 +26,7 @@ def run(tmp_path, training_inputs, **options):
         features=features,
         grid=({"min_samples_leaf": 1},),
         forest=SMALL_FOREST,
+        season_months=(1, 4),
         **options,
     )
 
@@ -41,7 +42,14 @@ def test_training_prints_the_scores_and_saves_the_report(tmp_path, training_inpu
     assert "Chosen: min_samples_leaf=1: macro-F1 1.00 (meets the FR-06 target" in printed
     assert "F1 per class: fallow/bare 1.00, grape 1.00." in printed
     assert "Trained on 149 parcels, 149 parcel-campaigns" in printed
+    assert (
+        "Season-to-date models (the chosen setting on the first months only):\n"
+        "  Aug: macro-F1 1.00\n"
+        "  Aug-Nov: macro-F1 1.00\n"
+    ) in printed
+    assert "Season-to-date models: macro-F1 1.00 to 1.00 (2 models, Aug to Aug-Nov)." in printed
     assert (tmp_path / "models" / "rf_v1.joblib").exists()
+    assert (tmp_path / "models" / "season" / "rf_v1_to_nov.joblib").exists()
     assert report.read_text(encoding="utf-8").startswith("# Random Forest")
     assert f"Report also saved to {report}." in printed
 
@@ -71,6 +79,7 @@ def test_the_summary_says_where_the_score_stands():
     )
     below = format_training(trained_with(0.5, SMALL_FOREST), SMALL_FOREST)
     assert "Chosen: defaults: macro-F1 0.50 (below the FR-06 minimum" in below
+    assert "Season-to-date" not in below  # none were trained
 
 
 def test_default_models_dir_is_at_the_repo_root():

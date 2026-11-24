@@ -8,7 +8,9 @@ from fundoscope.ml import (
     FEATURE_COLUMNS,
     MAX_PIXELS_PER_SAMPLE,
     FeatureError,
+    feature_columns,
     pixel_features,
+    season_to_date,
     training_sample,
 )
 from fundoscope.sentinel import COMPOSITE_BANDS
@@ -147,7 +149,7 @@ def test_extra_bands_are_ignored():
 @pytest.mark.parametrize(
     ("stack", "message"),
     [
-        (make_stack(months=11), "got 11 months starting 2023-08"),
+        (make_stack(months=13, curve=np.resize(CURVE, 13)), "got 13 months starting 2023-08"),
         (make_stack(start="2023-09-01"), "starting 2023-09"),
         (make_stack(months=0), "no months"),
         (make_stack().isel(band=slice(0, 9)), "missing the bands B12"),
@@ -164,6 +166,64 @@ def test_months_must_be_consecutive():
     months = pd.date_range("2023-08-01", periods=13, freq="MS").delete(5)  # skips January
     with pytest.raises(FeatureError, match="consecutive"):
         pixel_features(stack.assign_coords(month=months))
+
+
+# --- the first months of a campaign (season to date) -------------------------------------
+
+
+def test_feature_columns_of_the_first_months():
+    assert feature_columns() == FEATURE_COLUMNS
+    assert feature_columns(1) == (
+        *(f"{name}_aug" for name in (*BANDS, "ndvi", "ndwi")), *FEATURE_COLUMNS[-6:],
+    )  # fmt: skip
+    assert len(feature_columns(4)) == 4 * 12 + 6
+
+
+@pytest.mark.parametrize("months", [0, 13])
+def test_a_campaign_has_1_to_12_months(months):
+    with pytest.raises(ValueError, match=f"not {months}"):
+        feature_columns(months)
+
+
+def test_the_first_months_of_a_campaign_get_their_own_features():
+    features = pixel_features(make_stack(months=4))  # August to November
+
+    assert list(features.columns) == list(feature_columns(4))
+    row = features.iloc[0]
+    assert row["ndvi_nov"] == pytest.approx(0.7)
+    assert row["ndvi_peak"] == pytest.approx(0.8)
+    assert row["ndvi_peak_month"] == 2
+    assert row["ndvi_sum"] == pytest.approx(CURVE[:4].sum())
+    assert row["ndvi_months_active"] == 3  # 0.5, 0.8, 0.7
+
+
+def test_a_short_campaign_may_miss_a_third_of_its_months():
+    stack = make_stack(months=3)
+    stack[0, :, 0, 0] = np.nan  # 1 of 3 months: kept
+    stack[:2, :, 0, 1] = np.nan  # 2 of 3 months: left out
+
+    index = pixel_features(stack).index
+
+    assert (400_005.0, 8_400_005.0) in index
+    assert (400_015.0, 8_400_005.0) not in index
+    stack = make_stack(months=2)
+    stack[0, :, 0, 0] = np.nan  # with 2 months, none may be missing
+    assert len(pixel_features(stack)) == 5
+
+
+def test_season_to_date_matches_the_features_of_the_first_months():
+    full = pixel_features(make_stack())
+
+    for months in (1, 4, 11):
+        pd.testing.assert_frame_equal(
+            season_to_date(full, months), pixel_features(make_stack(months=months))
+        )
+    pd.testing.assert_frame_equal(season_to_date(full, 12), full)
+
+
+def test_season_to_date_keeps_only_the_features():
+    full = pixel_features(make_stack()).assign(parcel_id="ICA-0001")
+    assert list(season_to_date(full, 4).columns) == list(feature_columns(4))
 
 
 def test_a_small_parcel_keeps_all_its_pixels():

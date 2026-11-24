@@ -8,6 +8,9 @@ nearly identical, and splitting them between training and test would inflate the
 A few settings (`GRID`) are compared by the cross-validated macro-F1 per parcel-campaign,
 and the best one is refit on all training parcels. The field-verified parcels never enter
 here: they are scored once, with the final model.
+
+A season-to-date model (FR-14) is trained the same way on the first months of each campaign
+only (`training_table(..., months=n)`), to classify a campaign still in progress.
 """
 
 from collections import Counter
@@ -22,7 +25,7 @@ from sklearn.model_selection import StratifiedGroupKFold
 
 from fundoscope.ingest import CROP_CLASSES, MIN_PARCELS_PER_CLASS
 from fundoscope.ml.evaluate import Scores, parcel_prediction, score
-from fundoscope.ml.features import FEATURE_COLUMNS
+from fundoscope.ml.features import FEATURE_COLUMNS, MONTHS, season_to_date
 
 N_FOLDS = 5
 SEED = 0
@@ -51,6 +54,7 @@ BROADER_CLASS = {
     "rice": "other annual crops",
 }
 KEY = ["parcel_id", "campaign"]
+NOT_FEATURES = [*KEY, "crop_class", "target"]
 
 
 class TrainingError(ValueError):
@@ -107,16 +111,21 @@ def class_merges(parcels_per_class: Mapping[str, int]) -> dict[str, str]:
     return merges
 
 
-def training_table(pixels: pd.DataFrame, labels: pd.DataFrame) -> pd.DataFrame:
+def training_table(
+    pixels: pd.DataFrame, labels: pd.DataFrame, months: int = len(MONTHS)
+) -> pd.DataFrame:
     """Join the training pixels with their labels.
 
     Args:
         pixels: `parcel_id`, `campaign`, and the 150 `FEATURE_COLUMNS`, one row per pixel.
         labels: `parcel_id` and `crop` (a value of `CROP_CLASSES`), one row per parcel.
+        months: keep the features of the first `months` months only (August first), for a
+            season-to-date model; the label stays the crop of the whole campaign.
 
     Returns:
         `parcel_id`, `campaign`, `crop_class` (the label's model class), `target` (the class
-        the model learns, after merging small classes), and the features.
+        the model learns, after merging small classes), and the features
+        (`feature_columns(months)`).
 
     Raises:
         TrainingError: a pixel's parcel has no label, or a small class can't be merged.
@@ -128,7 +137,10 @@ def training_table(pixels: pd.DataFrame, labels: pd.DataFrame) -> pd.DataFrame:
         raise TrainingError(f"Pixels without a usable label: {', '.join(unknown)}.")
     per_class = crop_class.groupby(pixels["parcel_id"]).first().value_counts()
     merges = class_merges(per_class.to_dict())
-    table = pixels[[*KEY, *FEATURE_COLUMNS]].reset_index(drop=True)
+    features = pixels[list(FEATURE_COLUMNS)]
+    if months < len(MONTHS):
+        features = season_to_date(features, months)
+    table = pd.concat([pixels[KEY], features], axis=1).reset_index(drop=True)
     table.insert(2, "crop_class", crop_class.to_numpy())
     table.insert(3, "target", crop_class.map(merges).to_numpy())
     return table
@@ -148,7 +160,7 @@ def cross_validate(
 ) -> CrossValidation:
     """Score one setting: each fold is predicted by a forest trained on the other folds."""
     classes = sorted(table["target"].unique())
-    features = table[list(FEATURE_COLUMNS)].to_numpy()
+    features = _features(table)
     target = table["target"].to_numpy()
     probabilities = np.zeros((len(table), len(classes)))
     for train, test in grouped_folds(table, folds):
@@ -172,4 +184,9 @@ def best(results: Sequence[CrossValidation]) -> CrossValidation:
 def fit(table: pd.DataFrame, settings: Mapping[str, Any]) -> RandomForestClassifier:
     """Train the final forest on every training pixel."""
     model = RandomForestClassifier(**settings)
-    return model.fit(table[list(FEATURE_COLUMNS)].to_numpy(), table["target"].to_numpy())
+    return model.fit(_features(table), table["target"].to_numpy())
+
+
+def _features(table: pd.DataFrame) -> np.ndarray:
+    """The feature matrix of a training table: every column after `target`."""
+    return table.drop(columns=NOT_FEATURES).to_numpy()

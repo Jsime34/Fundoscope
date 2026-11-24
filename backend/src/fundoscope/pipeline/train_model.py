@@ -6,12 +6,17 @@ and every label that doesn't fit its NDVI curve must be reviewed. Then the setti
 on all training parcels, and three files are written to the output folder (git-ignored):
 `rf_v1.joblib` (the model), `model_card.json`, and `rf_cv.md` (the cross-validation report).
 The field-verified parcels are not used: they are scored once, with the final model.
+
+The same setting then trains the season-to-date models of the valley count (FR-14): one for
+each campaign length from August alone to August-June, each cross-validated with the same
+folds and saved as `season/rf_v1_to_<month>.joblib`. Their scores and confusion matrices (for
+the 95 % ranges of the hectares) go into the model card and the report.
 """
 
 import hashlib
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -27,10 +32,12 @@ from fundoscope.ml import (
     FOREST,
     GRID,
     MIN_MACRO_F1,
+    MONTHS,
     N_FOLDS,
     TARGET_MACRO_F1,
     CropModel,
     CrossValidation,
+    Scores,
     TrainingError,
     best,
     check_curves,
@@ -49,6 +56,21 @@ VERSION = "rf_v1"
 MODEL_FILE = f"{VERSION}.joblib"
 CARD_FILE = "model_card.json"
 REPORT_FILE = "rf_cv.md"
+SEASON_DIR = "season"
+# Campaign lengths with a season-to-date model: August alone to August-June. All 12 months
+# is the full model.
+SEASON_MONTHS = tuple(range(1, len(MONTHS)))
+
+
+def season_model_file(months: int) -> str:
+    """The file name of the season-to-date model for the first `months` months.
+
+    Raises:
+        ValueError: `months` isn't 1 to 11.
+    """
+    if months not in SEASON_MONTHS:
+        raise ValueError(f"Season-to-date models cover 1 to {len(MONTHS) - 1} months.")
+    return f"{VERSION}_to_{MONTHS[months - 1]}.joblib"
 
 
 @dataclass(frozen=True)
@@ -60,12 +82,14 @@ class TrainedModel:
         compared: every setting tried, in `GRID` order.
         card: the model card, as saved in `model_card.json`.
         folder: where the model, card, and report were written.
+        season: the cross-validation of each season-to-date model, by number of months.
     """
 
     chosen: CrossValidation
     compared: list[CrossValidation]
     card: dict[str, Any]
     folder: Path
+    season: dict[int, CrossValidation] = field(default_factory=dict)
 
 
 def train_crop_model(
@@ -76,9 +100,14 @@ def train_crop_model(
     grid: tuple[dict[str, Any], ...] = GRID,
     forest: dict[str, Any] = FOREST,
     folds: int = N_FOLDS,
+    season_months: tuple[int, ...] = SEASON_MONTHS,
     on_result: Callable[[CrossValidation], None] | None = None,
+    on_season: Callable[[int, CrossValidation], None] | None = None,
 ) -> TrainedModel:
     """Compare the settings, refit the best one, and save model, card, and report.
+
+    Then train a season-to-date model with the chosen setting for each of `season_months`.
+    `on_result` and `on_season` are called as each cross-validation finishes.
 
     Raises:
         TrainingError: the labels or the training pixels aren't ready.
@@ -110,19 +139,39 @@ def train_crop_model(
         if on_result:
             on_result(result)
     chosen = best(compared)
-    model = fit(table, chosen.settings)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    joblib.dump(fit(table, chosen.settings), out_dir / MODEL_FILE, compress=3)
+
+    season = {}
+    if season_months:
+        (out_dir / SEASON_DIR).mkdir(exist_ok=True)
+    for months in season_months:
+        partial = training_table(pixels, labels, months)
+        season[months] = cross_validate(partial, chosen.settings, folds)
+        path = out_dir / SEASON_DIR / season_model_file(months)
+        joblib.dump(fit(partial, chosen.settings), path, compress=3)
+        if on_season:
+            on_season(months, season[months])
 
     card = model_card(table, labels, chosen, compared, grid, folds, len(curves.mismatches))
-    out_dir.mkdir(parents=True, exist_ok=True)
-    joblib.dump(model, out_dir / MODEL_FILE, compress=3)
+    card["season_to_date"] = season_card(season)
     (out_dir / CARD_FILE).write_text(json.dumps(card, indent=2), encoding="utf-8")
     (out_dir / REPORT_FILE).write_text(format_cv_report(card), encoding="utf-8")
-    return TrainedModel(chosen, compared, card, out_dir)
+    return TrainedModel(chosen, compared, card, out_dir, season)
 
 
-def load_crop_model(folder: Path) -> CropModel | None:
-    """The crop model saved in `folder` by `train_crop_model`; None if there is none yet."""
-    path = folder / MODEL_FILE
+def load_crop_model(folder: Path, months: int = len(MONTHS)) -> CropModel | None:
+    """A crop model saved in `folder` by `train_crop_model`; None if there is none yet.
+
+    Args:
+        folder: the models folder.
+        months: 12 for the full model; 1 to 11 for the season-to-date model of the first
+            `months` months of a campaign.
+    """
+    if months == len(MONTHS):
+        path = folder / MODEL_FILE
+    else:
+        path = folder / SEASON_DIR / season_model_file(months)
     return joblib.load(path) if path.exists() else None
 
 
@@ -157,12 +206,7 @@ def model_card(
             "folds": folds,
             "grouped_by": "parcel_id",
             "unit": "parcel-campaign: class with the highest mean probability of its pixels",
-            "macro_f1": round(scores.macro_f1, 4),
-            "per_class_f1": {name: round(value, 4) for name, value in scores.per_class_f1.items()},
-            "confusion": {
-                "labeled_rows_predicted_columns": list(scores.confusion.columns),
-                "matrix": scores.confusion.to_numpy().tolist(),
-            },
+            **_scores(scores),
             "compared": [
                 {"setting": setting, "macro_f1": round(result.scores.macro_f1, 4)}
                 for setting, result in zip(grid, compared, strict=True)
@@ -182,6 +226,30 @@ def model_card(
             ).hexdigest(),
         },
         "field_verified_parcels": "not used: kept for one final test with the frozen model",
+    }
+
+
+def season_card(season: dict[int, CrossValidation]) -> list[dict[str, Any]]:
+    """The model card entries of the season-to-date models, shortest first."""
+    return [
+        {
+            "months": months,
+            "through": MONTHS[months - 1],
+            "file": f"{SEASON_DIR}/{season_model_file(months)}",
+            **_scores(result.scores),
+        }
+        for months, result in sorted(season.items())
+    ]
+
+
+def _scores(scores: Scores) -> dict[str, Any]:
+    return {
+        "macro_f1": round(scores.macro_f1, 4),
+        "per_class_f1": {name: round(value, 4) for name, value in scores.per_class_f1.items()},
+        "confusion": {
+            "labeled_rows_predicted_columns": list(scores.confusion.columns),
+            "matrix": scores.confusion.to_numpy().tolist(),
+        },
     }
 
 
@@ -266,4 +334,41 @@ def format_cv_report(card: dict[str, Any]) -> str:
         f"- {data['reviewed_ndvi_mismatches']} labels that didn't fit their NDVI curve were "
         "reviewed by hand and kept."
     )
+    lines += _season_report(card)
     return "\n".join(lines) + "\n"
+
+
+def _season_report(card: dict[str, Any]) -> list[str]:
+    season = card.get("season_to_date", [])
+    if not season:
+        return []
+    classes = card["classes"]
+    lines = [
+        "",
+        "## Season-to-date models (FR-14)",
+        "",
+        "A campaign still in progress is classified by a model trained on its first months "
+        "only, August to the latest month, with the same setting and folds. Each is scored "
+        "against the crop of the whole campaign.",
+        "",
+        "| Months | August to | Macro-F1 | " + " | ".join(classes) + " |",
+        "|---:|---|---:|" + "---:|" * len(classes),
+    ]
+    full = {
+        "months": len(MONTHS),
+        "through": MONTHS[-1],
+        "macro_f1": card["cross_validation"]["macro_f1"],
+        "per_class_f1": card["cross_validation"]["per_class_f1"],
+    }
+    for entry in [*season, full]:
+        per_class = " | ".join(f"{entry['per_class_f1'][name]:.2f}" for name in classes)
+        lines.append(
+            f"| {entry['months']} | {entry['through'].capitalize()} | "
+            f"{entry['macro_f1']:.2f} | {per_class} |"
+        )
+    lines += [
+        "",
+        "The last row is the full model. A month in progress is classified with the model of "
+        "its length, using the clear images so far.",
+    ]
+    return lines

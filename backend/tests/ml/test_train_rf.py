@@ -10,6 +10,7 @@ from fundoscope.ml import (
     best,
     class_merges,
     cross_validate,
+    feature_columns,
     fit,
     grouped_folds,
     training_table,
@@ -51,6 +52,21 @@ def test_the_table_has_the_label_class_and_the_trained_class():
         "fallow/bare": 15, "grape": 15, "other annual crops": 15,
     }  # fmt: skip
     assert (table["crop_class"] == table["target"]).all()
+
+
+def test_a_season_to_date_table_keeps_the_first_months():
+    pixels, labels = pixels_and_labels(parcels_per_crop=15)
+
+    table = training_table(pixels, labels, months=4)
+
+    assert list(table.columns[:4]) == ["parcel_id", "campaign", "crop_class", "target"]
+    assert list(table.columns[4:]) == list(feature_columns(4))
+    ndvi = table[["ndvi_aug", "ndvi_sep", "ndvi_oct", "ndvi_nov"]]
+    assert table["ndvi_peak"].to_numpy() == pytest.approx(ndvi.max(axis=1).to_numpy())
+
+    model = fit(table, SMALL_FOREST)
+    assert model.n_features_in_ == 4 * 12 + 6
+    assert cross_validate(table, SMALL_FOREST).scores.macro_f1 == 1.0
 
 
 def test_pixels_without_a_label_are_refused():
