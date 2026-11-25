@@ -16,3 +16,11 @@ export async function fetchHistory(file) {
   }
   return response.json();
 }
+
+// The latest crop count of a valley (FR-15). Error messages are in Spanish: the page is.
+export async function fetchValley(slug) {
+  const response = await fetch(`/api/valleys/${encodeURIComponent(slug)}`);
+  if (response.status === 404) throw new Error("este valle todavía no tiene un conteo.");
+  if (!response.ok) throw new Error(`el servidor respondió ${response.status}.`);
+  return response.json();
+}

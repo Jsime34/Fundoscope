@@ -28,6 +28,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "requests>=2.31",
     "scikit-learn>=1.5",
+    "pillow>=10",
 ]
 
 [project.scripts]

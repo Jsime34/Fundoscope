@@ -9,6 +9,7 @@ Files, in data/valley/<slug>/ (git-ignored):
   compressed 16-bit integers, a NumPy file: faster to read than NetCDF);
 - `landcover.nc`: ESA WorldCover 2021 on the valley grid;
 - `maps/<count>.nc`: the class of every pixel of each count (opens in QGIS);
+- `maps/<count>/<class>.png` and `maps/<count>/farmland.png`: the images of the dashboard;
 - `runs/<time>.json` and `latest.json`: the hectares of each count;
 - `requests.csv`: every openEO request with its cost (FR-25).
 
@@ -66,6 +67,15 @@ from fundoscope.valley import (
     farmland_mask,
     map_classes,
     valley,
+)
+from fundoscope.valley.classify import PLANTED
+from fundoscope.valley.render import (
+    FARMLAND,
+    class_color,
+    class_png,
+    corners,
+    farmland_png,
+    image_name,
 )
 from fundoscope.valley.season import Count, MonthKey, Season, group_months, season
 
@@ -155,12 +165,15 @@ class CountResult:
         model: the model file used, relative to the models folder.
         areas: the area of every class, in map order.
         map_file: the class map, relative to the valley folder.
+        images: the dashboard's image of each class and of the farmland ("farmland"),
+            relative to the valley folder.
     """
 
     count: Count
     model: str
     areas: list[ClassArea]
     map_file: str
+    images: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -293,7 +306,10 @@ def refresh_valley(
     results = []
     for count in plan.season.counts:
         areas = class_areas(counts[count.key], model_confusion(card, count.months))
-        results.append(CountResult(count, _model_file(count.months), areas, _map_file(count)))
+        images = _image_files(count, map_classes(models[count.months]))
+        results.append(
+            CountResult(count, _model_file(count.months), areas, _map_file(count), images)
+        )
     refresh = Refresh(
         plan,
         downloads,
@@ -618,6 +634,7 @@ def _count(
     for count in plan.season.counts:
         classes = map_classes(models[count.months])
         _save_map(folder / _map_file(count), maps[count.key], grid, classes, valley_.epsg)
+        _save_images(folder, count, maps[count.key], classes)
     ordered = {
         count.key: {name: counts[count.key][name] for name in map_classes(models[count.months])}
         for count in plan.season.counts
@@ -639,6 +656,25 @@ def _save_map(
     _write(_georeferenced(data.to_dataset(), epsg), path, {"crop_class": _CLASSES})
 
 
+def _image_files(count: Count, classes: tuple[str, ...]) -> dict[str, str]:
+    folder = f"{MAPS_DIR}/{count.key}"
+    images = {name: f"{folder}/{image_name(name)}.png" for name in classes}
+    return {FARMLAND: f"{folder}/{FARMLAND}.png", **images}
+
+
+def _save_images(
+    folder: Path, count: Count, codes: NDArray[np.uint8], classes: tuple[str, ...]
+) -> None:
+    """The dashboard's images: the farmland, and each class in its color (see `render`)."""
+    files = _image_files(count, classes)
+    (folder / MAPS_DIR / count.key).mkdir(exist_ok=True)
+    (folder / files[FARMLAND]).write_bytes(farmland_png(codes))
+    for code, name in enumerate(classes, start=1):
+        color = class_color(name, classes)
+        image = class_png(codes, code, color, striped=name == PLANTED)
+        (folder / files[name]).write_bytes(image)
+
+
 def _save_run(refresh: Refresh, folder: Path, card: dict[str, Any], run_at: datetime) -> Path:
     """Save the run as runs/<time>.json and latest.json."""
     plan = refresh.plan
@@ -653,6 +689,11 @@ def _save_run(refresh: Refresh, folder: Path, card: dict[str, Any], run_at: date
         "downloads": len(refresh.downloads),
         "seconds": round(refresh.seconds, 1),
         "model": {"version": card["version"], "trained_at": card["trained_at"]},
+        "corners": corners(plan.valley.bounds, plan.valley.epsg),
+        "colors": {
+            area.name: class_color(area.name, tuple(a.name for a in refresh.counts[0].areas))
+            for area in refresh.counts[0].areas
+        },
         "counts": [_count_json(result) for result in refresh.counts],
     }
     text = json.dumps(run, indent=2)
@@ -673,6 +714,7 @@ def _count_json(result: CountResult) -> dict[str, Any]:
         "in_progress": count.in_progress,
         "model": result.model,
         "map": result.map_file,
+        "images": result.images,
         "classes": [
             {
                 "name": area.name,

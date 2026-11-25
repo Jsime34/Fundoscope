@@ -1,0 +1,61 @@
+/* The valley dashboard (/valle/<slug>): a phone first, at most 720 px wide. */
+
+.valley { max-width: 720px; margin: 0 auto; padding: 16px 16px 32px; display: grid; gap: 14px; }
+.valley h1 { font-size: 26px; letter-spacing: -0.02em; }
+.valley .card { padding: 16px; min-width: 0; }
+.valley .card h2 { font-size: 16px; margin-bottom: 8px; }
+.valley .hint { color: var(--ink-2); font-size: 13px; line-height: 1.45; margin-bottom: 12px; }
+
+.valley-head { display: grid; gap: 4px; }
+.valley-head .brand { font-size: 14px; }
+.valley-sub { color: var(--ink-2); font-size: 15px; }
+.valley-dates { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--ink-2); font-size: 13.5px; }
+
+/* Map */
+.valley .map-section { padding: 0; overflow: hidden; }
+.map-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px 10px; }
+.map-head h2 { margin: 0; }
+.switch { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--ink-2); cursor: pointer; }
+.switch input { width: 18px; height: 18px; accent-color: var(--brand); }
+.valley-map { width: 100%; height: 340px; background: #d8d4c8; }
+@media (min-width: 600px) { .valley-map { height: 440px; } }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; padding: 10px 16px 14px; font-size: 13.5px; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.legend-hint { color: var(--muted); font-size: 12.5px; flex-basis: 100%; }
+
+.swatch { display: inline-block; flex: none; width: 14px; height: 14px; border-radius: 3px; }
+.swatch.farmland { background: #e9e7e0; border: 1px solid var(--grid); }
+
+/* Hectares per crop */
+.crop-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.crop-row {
+  display: grid; gap: 4px; width: 100%; text-align: left; font: inherit; color: inherit;
+  background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 10px 10px 8px;
+  cursor: pointer;
+}
+.crop-row:hover { background: #f4f4f1; }
+.crop-row.selected { border-color: var(--hairline); background: var(--band); }
+.crop-row:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.crop-head { display: flex; align-items: center; gap: 8px; }
+.crop-name { font-weight: 600; font-size: 15px; flex: 1; min-width: 0; }
+.crop-ha { font-weight: 700; font-size: 17px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.crop-change { color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+.crop-range { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.row-chart { position: relative; display: block; height: 30px; margin: 2px 6px 0; }
+.row-chart .track { position: absolute; left: 0; right: 0; top: 9px; height: 1px; background: #c3c2b7; }
+.row-chart .dot {
+  position: absolute; top: 4px; width: 11px; height: 11px; border-radius: 50%;
+  transform: translateX(-50%); box-shadow: 0 0 0 2px var(--surface);
+}
+.row-chart .previous { position: absolute; top: 2px; width: 2px; height: 15px; background: var(--ink); transform: translateX(-50%); }
+.row-chart .range { position: absolute; top: 21px; height: 4px; border-radius: 2px; opacity: 0.55; min-width: 2px; }
+
+.farmland-total { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--grid); font-size: 14px; color: var(--ink-2); }
+
+/* Complete campaigns */
+table.complete td, table.complete th { padding: 8px 6px; }
+
+.valley .reading p { font-size: 13.5px; line-height: 1.5; color: var(--ink-2); }
+.valley .reading p + p { margin-top: 8px; }
+.valley .footer { margin-top: 4px; }

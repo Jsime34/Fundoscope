@@ -70,6 +70,8 @@ Requirements: [uv](https://docs.astral.sh/uv/), Node.js 20.19+ or 22.12+, Docker
 
 With the API and the web app running (setup steps 4 and 5), open http://localhost:5180 and drop a KML, KMZ, or GeoJSON parcel. The first run downloads the parcel's history from Copernicus (about a minute and a half for a small parcel); the result is cached for the day in `data/private/cache/` (git-ignored), so opening the same file again is instant. The page shows the parcel on satellite imagery, the NDVI and NDWI curves since 2018, and the campaign table with the % of the area actively farmed.
 
+The valley crop monitor is at http://localhost:5180/valle/majes, in Spanish and made for a phone. It shows the latest count saved by `fundoscope valley refresh majes` (below): the crop map over satellite imagery (the farmland, and one crop at a time: tap a crop in the list), and the hectares of each crop this campaign against the previous campaign at the same date, with the change and the corrected 95 % range. It reads `data/valley/majes/latest.json` through `GET /api/valleys/majes`; nothing on the page calls Copernicus.
+
 ### Command line
 
 A parcel's campaign-by-campaign history (2018 to today) from a KML, KMZ, or GeoJSON file:
