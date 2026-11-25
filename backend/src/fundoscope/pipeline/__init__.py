@@ -6,7 +6,8 @@ Used by both the CLI and the API worker so the logic lives in one place. Weeks 3
 
 Submodules: `parcel_history` (file -> campaign table; no database yet), `training_data`
 (labels -> training pixels, within the quota), `train_model` (training pixels -> saved crop
-model and season-to-date models, model card, and cross-validation report).
+model and season-to-date models, model card, and cross-validation report), `valley_refresh`
+(the valley's new composites -> hectares per crop class, FR-14).
 """
 
 from fundoscope.pipeline.parcel_history import ParcelHistory, parcel_history
@@ -36,6 +37,15 @@ from fundoscope.pipeline.training_data import (
     load_training_pixels,
     pending,
 )
+from fundoscope.pipeline.valley_refresh import (
+    Plan,
+    Refresh,
+    ValleyError,
+    load_valley,
+    plan_refresh,
+    refresh_valley,
+    valley_dir,
+)
 
 __all__ = [
     "CARD_FILE",
@@ -50,16 +60,23 @@ __all__ = [
     "TOO_NARROW",
     "Extraction",
     "ParcelHistory",
+    "Plan",
+    "Refresh",
     "Task",
     "TaskResult",
     "TrainedModel",
+    "ValleyError",
     "extract_training_data",
     "extraction_tasks",
     "format_cv_report",
     "load_crop_model",
     "load_training_pixels",
+    "load_valley",
     "parcel_history",
     "pending",
+    "plan_refresh",
+    "refresh_valley",
     "season_model_file",
     "train_crop_model",
+    "valley_dir",
 ]

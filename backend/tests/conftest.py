@@ -221,3 +221,160 @@ def training_inputs(tmp_path_factory):
     features = tmp_path_factory.mktemp("features")
     extract_training_data(extraction_tasks(labels), features, CreditBudget(10_000), fetch=fake)
     return labels, features
+
+
+# --- the valley crop count (FR-14) ------------------------------------------------------------
+
+VALLEY_CLASSES = ["alfalfa", "fallow/bare", "grape", "other annual crops"]
+_VALLEY_CORNER = to_utm(Point(-75.73, -14.07), 32718)  # public farmland near Ica
+VALLEY_WEST = float(np.floor(_VALLEY_CORNER.x / 10) * 10)
+VALLEY_SOUTH = float(np.floor(_VALLEY_CORNER.y / 10) * 10)
+
+
+def _ndvi_nir(ndvi):
+    return 0.05 * (1 + ndvi) / (1 - ndvi)  # with red at 0.05
+
+
+class FakeValleyComposites:
+    """Replaces `fetch_monthly_composites` for a valley 8 columns wide, like openEO (one
+    pixel of padding on each side):
+
+    - columns 0-1 are desert (NDVI 0.09), never farmland;
+    - columns 2-3 are a vineyard (NDVI 0.8 all year);
+    - columns 4-7 are sown every November: bare (0.09) from August to October, then an
+      unsure crop (0.5).
+
+    The pixel in row 1 of column 3 is cloudy in August and September 2026. `offset` moves
+    the grid off the 10 m lines; `fail` makes every request fail.
+    """
+
+    def __init__(self, offset: float = 0.0, fail: bool = False):
+        self.calls: list[tuple] = []
+        self.offset = offset
+        self.fail = fail
+
+    def __call__(self, geometry_utm, epsg, start, end, bands):
+        self.calls.append((geometry_utm.bounds, start, end))
+        if self.fail:
+            raise SentinelError("simulated openEO failure")
+        minx, miny, maxx, maxy = geometry_utm.bounds
+        x = np.arange(minx - 5, maxx + 10, 10.0) + self.offset
+        y = np.arange(maxy + 5, miny - 10, -10.0)
+        months = pd.date_range(pd.Timestamp(start).replace(day=1), end, freq="MS")
+        column = np.round((x - VALLEY_WEST - 5) / 10)
+        ndvi = np.empty((len(months), len(y), len(x)))
+        for i, month in enumerate(months):
+            sown = np.where(month.month in (8, 9, 10), 0.09, 0.5)
+            ndvi[i] = np.select([column < 2, column < 4], [0.09, 0.8], sown)[None, :]
+        data = np.full((len(months), len(bands), len(y), len(x)), 0.1)
+        data[:, list(bands).index("B04")] = 0.05
+        data[:, list(bands).index("B08")] = _ndvi_nir(ndvi)
+        row = np.round((VALLEY_SOUTH + 40 - 5 - y) / 10)
+        for i, month in enumerate(months):
+            if month in (pd.Timestamp("2026-08-01"), pd.Timestamp("2026-09-01")):
+                data[i, :, (row == 1).argmax(), (column == 3).argmax()] = np.nan
+        stack = xr.DataArray(
+            data,
+            dims=("month", "band", "y", "x"),
+            coords={"month": months, "band": list(bands), "y": y, "x": x},
+        )
+        return MonthlyComposites(stack, epsg, credits=7.0)
+
+
+class FakeLandCover:
+    """Replaces `fetch_land_cover`: cropland, with one built-up pixel (row 0, column 2).
+
+    Like the real WorldCover, its 10 m grid is shifted by a few meters from the valley's.
+    """
+
+    def __init__(self, empty: bool = False):
+        self.calls = 0
+        self.empty = empty
+
+    def __call__(self, geometry_utm, epsg):
+        from fundoscope.sentinel.landcover import LandCover
+
+        self.calls += 1
+        minx, miny, maxx, maxy = geometry_utm.bounds
+        x = np.arange(minx - 5, maxx + 10, 10.0) - 2.75
+        y = np.arange(maxy + 5, miny - 10, -10.0) + 3.79
+        cover = np.full((len(y), len(x)), 40, np.uint8)
+        cover[1, 3] = 50  # row 0, column 2, after the padding
+        if self.empty:
+            x, y, cover = x[:0], y[:0], cover[:0, :0]
+        data = xr.DataArray(cover, dims=("y", "x"), coords={"y": y, "x": x})
+        return LandCover(data, epsg, credits=7.0)
+
+
+@pytest.fixture
+def small_valley():
+    """The valley "demo": 80 m x 40 m near Ica, in two tiles."""
+    from fundoscope.valley import valley
+
+    area = box(VALLEY_WEST, VALLEY_SOUTH, VALLEY_WEST + 80, VALLEY_SOUTH + 40)
+    return valley("demo", area, 32718, max_tile_m=40)
+
+
+class FakeCatalog:
+    """Replaces `newest_image_date`: the newest image is the day before `until`."""
+
+    def __init__(self, fail: bool = False):
+        self.calls: list[tuple] = []
+        self.fail = fail
+
+    def __call__(self, bounds_wgs84, until):
+        import datetime
+
+        self.calls.append((bounds_wgs84, until))
+        if self.fail:
+            raise SentinelError("simulated catalog failure")
+        return until - datetime.timedelta(days=1)
+
+
+@pytest.fixture
+def valley_fakes():
+    """Fresh fakes for one test: `fetch` (composites), `fetch_cover` (land cover), and
+    `newest_image` (the catalog)."""
+    return {
+        "fetch": FakeValleyComposites(),
+        "fetch_cover": FakeLandCover(),
+        "newest_image": FakeCatalog(),
+    }
+
+
+def _peak_tree(months: int):
+    """A real (pickleable) model that looks only at the NDVI peak: above 0.7 is grape,
+    0.3 to 0.7 is unsure (other annual crops 40 %), below 0.3 is fallow/bare."""
+    from sklearn.tree import DecisionTreeClassifier
+
+    from fundoscope.ml import feature_columns
+
+    peaks = [0.9] * 5 + [0.1] * 5 + [0.5] * 5
+    classes = ["grape"] * 5 + ["fallow/bare"] * 5
+    classes += ["other annual crops", "other annual crops", "grape", "fallow/bare", "alfalfa"]
+    features = np.zeros((len(peaks), len(feature_columns(months))))
+    features[:, -6] = peaks  # ndvi_peak
+    return DecisionTreeClassifier(random_state=0).fit(features, classes)
+
+
+@pytest.fixture
+def valley_models(tmp_path_factory):
+    """A models folder with the full model, the model to November, and their card."""
+    import joblib
+
+    from fundoscope.pipeline import CARD_FILE, MODEL_FILE, SEASON_DIR, season_model_file
+
+    folder = tmp_path_factory.mktemp("models")
+    (folder / SEASON_DIR).mkdir()
+    joblib.dump(_peak_tree(12), folder / MODEL_FILE)
+    joblib.dump(_peak_tree(4), folder / SEASON_DIR / season_model_file(4))
+    matrix = [[9, 0, 0, 1], [0, 10, 0, 0], [0, 0, 8, 2], [0, 1, 1, 18]]
+    confusion = {"labeled_rows_predicted_columns": VALLEY_CLASSES, "matrix": matrix}
+    card = {
+        "version": "rf_v1",
+        "trained_at": "2026-11-23T10:00:00",
+        "cross_validation": {"confusion": confusion},
+        "season_to_date": [{"months": 4, "confusion": confusion}],
+    }
+    (folder / CARD_FILE).write_text(json.dumps(card), encoding="utf-8")
+    return folder

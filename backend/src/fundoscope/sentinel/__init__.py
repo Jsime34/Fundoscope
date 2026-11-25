@@ -2,7 +2,8 @@
 
 Adapter to the Copernicus Data Space Ecosystem: authentication settings (`cdse`), evalscripts,
 daily parcel statistics from the Statistical API (`statistical`), and monthly cloud-free
-composites from openEO (`composites`), and the monthly free quota (`quota`, FR-25).
+composites from openEO (`composites`), ESA WorldCover land cover from openEO (`landcover`),
+and the monthly free quota (`quota`, FR-25).
 Weeks 2-3, 5.
 """
 
@@ -15,6 +16,7 @@ from fundoscope.sentinel.composites import (
     openeo_connection,
     parse_netcdf,
 )
+from fundoscope.sentinel.landcover import LandCover, fetch_land_cover
 from fundoscope.sentinel.quota import (
     BATCH_QUOTA_SHARE,
     FREE_CREDITS_PER_MONTH,
@@ -39,12 +41,14 @@ __all__ = [
     "DailyStats",
     "FREE_CREDITS_PER_MONTH",
     "FREE_PROCESSING_UNITS_PER_MONTH",
+    "LandCover",
     "MonthlyComposites",
     "SentinelError",
     "batch_cap",
     "build_graph",
     "date_chunks",
     "fetch_daily_stats",
+    "fetch_land_cover",
     "fetch_monthly_composites",
     "openeo_connection",
     "parse_netcdf",

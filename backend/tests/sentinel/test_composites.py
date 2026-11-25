@@ -21,7 +21,7 @@ from fundoscope.sentinel import (
     openeo_connection,
     parse_netcdf,
 )
-from fundoscope.sentinel.composites import _send_sync
+from fundoscope.sentinel.composites import send_sync
 from fundoscope.sentinel.evalscripts import NOT_CLEAR_SCL_CLASSES
 
 FIXTURE = Path(__file__).parent / "fixtures" / "composite_ica_2024-01_02.nc"
@@ -191,7 +191,7 @@ def test_connection_requires_credentials(monkeypatch):
         get_settings.cache_clear()
 
 
-# --- _send_sync: rate limits and errors (fake connection, no network) ----------------------
+# --- send_sync: rate limits and errors (fake connection, no network) ----------------------
 
 
 class FakeResponse:
@@ -218,7 +218,7 @@ def too_many_requests():
 def test_rate_limited_requests_wait_and_retry():
     waits = []
     connection = FakeConnection([too_many_requests(), too_many_requests()])
-    content, credits = _send_sync({}, connection=connection, sleep=waits.append)
+    content, credits = send_sync({}, connection=connection, sleep=waits.append)
     assert (content, credits) == (b"netcdf-bytes", 7.0)
     assert waits == [5, 15] and connection.posts == 3
 
@@ -227,7 +227,7 @@ def test_persistent_rate_limiting_gives_up_with_a_clear_error():
     waits = []
     connection = FakeConnection([too_many_requests() for _ in range(4)])
     with pytest.raises(SentinelError, match="429"):
-        _send_sync({}, connection=connection, sleep=waits.append)
+        send_sync({}, connection=connection, sleep=waits.append)
     assert waits == [5, 15, 45]
 
 
@@ -235,11 +235,11 @@ def test_a_server_error_is_reported_without_waiting():
     waits = []
     connection = FakeConnection([OpenEoApiPlainError(message="Internal", http_status_code=500)])
     with pytest.raises(SentinelError, match="openEO request failed"):
-        _send_sync({}, connection=connection, sleep=waits.append)
+        send_sync({}, connection=connection, sleep=waits.append)
     assert waits == []
 
 
 def test_a_network_failure_is_reported():
     connection = FakeConnection([requests.ConnectionError("no route to host")])
     with pytest.raises(SentinelError, match="Could not reach openEO"):
-        _send_sync({}, connection=connection, sleep=lambda _s: None)
+        send_sync({}, connection=connection, sleep=lambda _s: None)

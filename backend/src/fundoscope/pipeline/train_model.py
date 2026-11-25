@@ -175,6 +175,31 @@ def load_crop_model(folder: Path, months: int = len(MONTHS)) -> CropModel | None
     return joblib.load(path) if path.exists() else None
 
 
+def load_model_card(folder: Path) -> dict[str, Any] | None:
+    """The model card saved in `folder` by `train_crop_model`; None if there is none yet."""
+    path = folder / CARD_FILE
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+
+def model_confusion(card: dict[str, Any], months: int = len(MONTHS)) -> pd.DataFrame:
+    """The cross-validated confusion matrix of the model for `months` months, from its card.
+
+    Rows are the labeled classes and columns the predicted ones.
+
+    Raises:
+        KeyError: the card has no season-to-date model for `months` months.
+    """
+    if months == len(MONTHS):
+        entry = card["cross_validation"]
+    else:
+        found = [item for item in card.get("season_to_date", []) if item["months"] == months]
+        if not found:
+            raise KeyError(f"The model card has no season-to-date model for {months} months.")
+        entry = found[0]
+    names = entry["confusion"]["labeled_rows_predicted_columns"]
+    return pd.DataFrame(entry["confusion"]["matrix"], index=names, columns=names)
+
+
 def model_card(
     table: pd.DataFrame,
     labels: pd.DataFrame,

@@ -213,3 +213,19 @@ def test_the_saved_model_can_be_loaded_back(trained, tmp_path):
     assert load_crop_model(result.folder, 2) is None  # no model for August-September
     with pytest.raises(ValueError, match="1 to 11 months"):
         load_crop_model(result.folder, 13)
+
+
+def test_the_confusion_matrices_come_from_the_saved_card(trained, tmp_path):
+    from fundoscope.pipeline.train_model import load_model_card, model_confusion
+
+    result, _ = trained
+    card = load_model_card(result.folder)
+
+    full = model_confusion(card)
+    assert list(full.index) == list(full.columns) == ["fallow/bare", "grape"]
+    assert full.to_numpy().sum() == card["data"]["parcel_campaigns"]
+    to_november = model_confusion(card, 4)
+    assert to_november.to_numpy().sum() == full.to_numpy().sum()
+    with pytest.raises(KeyError, match="no season-to-date model for 2 months"):
+        model_confusion(card, 2)
+    assert load_model_card(tmp_path) is None

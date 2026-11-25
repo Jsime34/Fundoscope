@@ -26,15 +26,15 @@ Rules, checked automatically by `uv run lint-imports` (contracts in `backend/pyp
 | Module | Submodules | Public API | Status |
 |---|---|---|---|
 | `ingest` | `utm.py`, `readers.py`, `parcels.py`, `labels.py` | `utm_epsg`, `to_utm`, `from_utm`, `read_features`, `parse_parcel`, `Parcel`, `ParcelFeature`, `ParcelError`, `read_labels`, `check_labels`, `LabelReport`, `LabelError`, `CROP_CLASSES` | **done** |
-| `sentinel` | `cdse.py`, `evalscripts.py`, `statistical.py`, `composites.py`, `quota.py` | `sh_config`, `fetch_daily_stats`, `DailyStats`, `fetch_monthly_composites`, `MonthlyComposites`, `batch_cap`, `CreditBudget` | **done** |
+| `sentinel` | `cdse.py`, `evalscripts.py`, `statistical.py`, `composites.py`, `landcover.py`, `quota.py` | `sh_config`, `fetch_daily_stats`, `DailyStats`, `fetch_monthly_composites`, `MonthlyComposites`, `fetch_land_cover` (ESA WorldCover), `batch_cap`, `CreditBudget` | **done** |
 | `timeseries` | `campaigns.py`, `indices.py`, `clean.py`, `metrics.py`, `active_area.py` | `campaign_of`, `ndvi`, `ndwi`, `clean_series`, `campaign_metrics`, `active_fraction`, `max_ndvi_composite` | **done** |
 | `ml` | `features.py`, `label_curves.py`, `train_rf.py`, `train_transformer.py`, `predict.py`, `evaluate.py` | `pixel_features`, `feature_columns`, `season_to_date`, `training_sample`, `FEATURE_COLUMNS`, `FeatureError`, `check_curves`, `CurveCheck`, `training_table`, `cross_validate`, `fit`, `score`, `predict_crop`, `CropPrediction` | in progress (all but `train_transformer` done) |
 | `analysis` | `flags.py`, `neighbors.py`, `water.py`, `report.py` | `campaign_flags`, `Flag` (abandonment, crop change, anomaly, low data); neighbor band, water check, report | in progress (`flags` done) |
-| `valley` | `classify.py`, `areas.py`, `render.py` | pixel classes, hectares with CI, map image | planned (week 10) |
+| `valley` | `aoi.py`, `season.py`, `farmland.py`, `classify.py`, `areas.py`, `render.py` | `valley` (tiles), `season` (what a refresh counts), `farmland_mask`, `classify_tile` (with the "planted, not yet identifiable" rule), `class_areas` (hectares with 95 % ranges, Olofsson 2014); map image | in progress (all but `render` done) |
 | `db` | `models.py`, `session.py`, `repositories.py` | tables and queries | planned (week 3) |
-| `pipeline` | `parcel_history.py`, `training_data.py`, `train_model.py`, `analyze_parcel.py`, `refresh_valley.py` | `parcel_history`, `ParcelHistory`, `extract_training_data`, `extraction_tasks`, `load_training_pixels`, `train_crop_model` (full and season-to-date models), `load_crop_model`, `interior_stack`; end-to-end jobs | in progress (`parcel_history` with crop prediction, `training_data`, and `train_model` done, no DB cache yet) |
+| `pipeline` | `parcel_history.py`, `training_data.py`, `train_model.py`, `valley_refresh.py`, `analyze_parcel.py` | `parcel_history`, `ParcelHistory`, `extract_training_data`, `extraction_tasks`, `load_training_pixels`, `train_crop_model` (full and season-to-date models), `load_crop_model`, `model_confusion`, `interior_stack`, `plan_refresh`, `refresh_valley`; end-to-end jobs | in progress (`parcel_history` with crop prediction, `training_data`, `train_model`, and `valley_refresh` done, no DB yet) |
 | `api` | `main.py`, `routes/`, `schemas.py`, `worker.py` | REST endpoints | started (`/health`) |
-| `cli` | `checks.py`, `history.py`, `plots.py`, `labels.py`, `model.py` | `fundoscope check-db`, `check-cdse`, `history <file>`, `labels check`, `labels extract`, `model train` | in progress |
+| `cli` | `checks.py`, `history.py`, `plots.py`, `labels.py`, `model.py`, `valley.py` | `fundoscope check-db`, `check-cdse`, `history <file>`, `labels check`, `labels extract`, `model train`, `valley refresh <slug>` | in progress |
 
 ## Definition of done (every submodule)
 

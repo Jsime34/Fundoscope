@@ -112,6 +112,15 @@ uv run fundoscope model train --report ../docs/eval/rf_cv.md
 
 It compares a few Random Forest settings by 5-fold cross-validation grouped by parcel (every fold is scored on parcels the model never saw), refits the best one on all training parcels, and saves `rf_v1.joblib`, `model_card.json`, and the report `rf_cv.md` to `models/` (git-ignored). It takes about a minute per setting. With the chosen setting it then trains the season-to-date models for the valley count: one per campaign length, from August alone to August-June, saved in `models/season/` (about 3 minutes in all). Their scores by month are in the same report. It refuses to train while a label check or an NDVI mismatch is pending. The field-verified parcels are never used here: they are scored once, with the final model. The latest report is [docs/eval/rf_cv.md](docs/eval/rf_cv.md).
 
+Then count the crop hectares of the valley (the Pampa de Majes; its area of interest, drawn in QGIS, is `data/valley/majes/aoi.geojson`):
+
+```
+uv run fundoscope valley refresh majes --dry-run
+uv run fundoscope valley refresh majes --used-credits 1500
+```
+
+It cuts the area into tiles of about 70 km², downloads the monthly composites it doesn't have yet, and keeps them in `data/valley/majes/` (git-ignored). The first run downloads three campaigns and ESA WorldCover (about 55 openEO requests, 385 credits, and two hours). Later runs download only the month in progress and the same days one year earlier (about 18 requests and 15 minutes a week). The farmland is every pixel whose NDVI passed 0.4 in one of the three campaigns, minus towns and water (WorldCover). Each farmland pixel is classified four times: this campaign so far with the season-to-date model of its months, the previous campaign at the same date with the same model, and the two previous campaigns whole. In a campaign in progress, an unsure pixel (top probability below 0.5) whose NDVI is rising from bare soil counts as "planted, not yet identifiable". It prints the hectares per class with 95 % ranges from the cross-validated confusion matrix (Olofsson et al., 2014) and the comparison with last year, and saves them in `runs/` and `latest.json`, with a class map per count in `maps/` (NetCDF, opens in QGIS). A run stopped by the credit cap or by failures counts nothing; run it again to continue. The first run saves the tile grid in `grid.json`: you can redraw the area of interest later without downloading again, as long as it stays inside that grid.
+
 ## Data sources and attribution
 
 - Contains modified Copernicus Sentinel data [2018–2026], processed through the Copernicus Data Space Ecosystem.

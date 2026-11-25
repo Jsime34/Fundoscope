@@ -104,7 +104,7 @@ def fetch_monthly_composites(
     if end < start:
         raise ValueError(f"The end date {end} is before the start date {start}")
     graph = build_graph(geometry_utm.bounds, epsg, start, end, bands)
-    content, credits = (send or _send_sync)(graph)
+    content, credits = (send or send_sync)(graph)
     return MonthlyComposites(parse_netcdf(content, bands), epsg, credits)
 
 
@@ -182,7 +182,7 @@ def _thread_connection() -> openeo.Connection:
     return _local.connection[0]
 
 
-def _send_sync(
+def send_sync(
     graph: dict,
     connection: openeo.Connection | None = None,
     sleep: Callable[[float], None] = time.sleep,

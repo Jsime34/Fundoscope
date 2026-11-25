@@ -2,7 +2,7 @@
 
 Submodules: `checks` (setup checks), `history` (a parcel's history), `plots` (PNG charts),
 `labels` (checks the labeled parcels and downloads their training pixels), `model` (trains
-the crop model).
+the crop model), `valley` (counts the crop hectares of a valley).
 """
 
 import argparse
@@ -13,6 +13,7 @@ from fundoscope.cli.checks import check_cdse, check_db
 from fundoscope.cli.history import run_history
 from fundoscope.cli.labels import run_labels_check, run_labels_extract
 from fundoscope.cli.model import run_model_train
+from fundoscope.cli.valley import run_valley_refresh
 from fundoscope.sentinel import ARCHIVE_START
 
 
@@ -99,6 +100,28 @@ def main(argv: list[str] | None = None) -> int:
         "--report", type=Path, default=None, help="also save the report here (docs/eval/rf_cv.md)"
     )
 
+    valley = sub.add_parser("valley", help="the valley crop monitor")
+    valley_sub = valley.add_subparsers(dest="valley_command", required=True)
+    valley_refresh = valley_sub.add_parser(
+        "refresh",
+        help="download the newest images and count the crop hectares of a valley (uses openEO "
+        "credits)",
+    )
+    valley_refresh.add_argument("slug", help="the valley's folder in data/valley, e.g. majes")
+    valley_refresh.add_argument(
+        "--used-credits",
+        type=float,
+        default=None,
+        help="openEO credits already used this month (Billing tab of the openEO Algorithm "
+        "Plaza); the run stops before 80 %% of the month's quota",
+    )
+    valley_refresh.add_argument(
+        "--cap", type=float, default=None, help="spend at most this many credits in this run"
+    )
+    valley_refresh.add_argument(
+        "--dry-run", action="store_true", help="only show what would be downloaded and counted"
+    )
+
     args = parser.parse_args(argv)
     if args.command == "check-db":
         return check_db()
@@ -108,6 +131,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_labels_extract(args.file, args.used_credits, args.cap, dry_run=args.dry_run)
     if args.command == "labels":
         return run_labels_check(args.file)
+    if args.command == "valley":
+        return run_valley_refresh(args.slug, args.used_credits, args.cap, dry_run=args.dry_run)
     if args.command == "model":
         return run_model_train(args.file, args.out, args.report)
     if args.command == "history":
