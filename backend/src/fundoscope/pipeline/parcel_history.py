@@ -4,6 +4,7 @@ uploaded file -> `ingest.parse_parcel` -> `sentinel.fetch_daily_stats`
 -> `timeseries.clean_series` -> `timeseries.campaign_metrics`
 (+ optionally `sentinel.fetch_monthly_composites` -> % active area per campaign, and with a
 trained model, the crop of each campaign)
+(+ optionally, for a parcel inside a counted valley, the neighbor comparison, FR-08)
 
 The daily statistics and the monthly composites are downloaded at the same time. Composites
 are requested one campaign at a time, two in parallel: one request for all 8 years failed
@@ -18,12 +19,14 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 import xarray as xr
 from shapely.geometry.base import BaseGeometry
 
 from fundoscope.analysis import Flag, campaign_flags
+from fundoscope.analysis.neighbors import underperforming_flags
 from fundoscope.ingest import Parcel, parse_parcel
 from fundoscope.ml import (
     INTERIOR_BUFFER_M,
@@ -33,6 +36,7 @@ from fundoscope.ml import (
     FeatureError,
     predict_crop,
 )
+from fundoscope.pipeline.neighbors import NeighborReport, neighbor_report
 from fundoscope.sentinel import (
     ARCHIVE_START,
     COMPOSITE_BANDS,
@@ -73,8 +77,10 @@ class ParcelHistory:
             predicted, e.g. a campaign in progress), and `crop_confidence` (0..1, or NaN).
         credits: openEO credits spent on composites (0 if active area was not requested).
         active_area_failures: campaigns whose composites could not be downloaded.
-        flags: abandonment, crop change, anomaly, and low-data flags, in campaign order
-            (see `analysis.flags`; abandonment and crop change need the composites).
+        flags: abandonment, crop change, anomaly, low-data, and underperforming flags, in
+            campaign order (see `analysis.flags`; abandonment and crop change need the
+            composites, underperforming needs the neighbor comparison).
+        neighbors: the neighbor comparison (None when it wasn't asked for).
     """
 
     parcel: Parcel
@@ -84,6 +90,7 @@ class ParcelHistory:
     credits: float = 0.0
     active_area_failures: int = 0
     flags: list[Flag] = field(default_factory=list)
+    neighbors: NeighborReport | None = None
 
 
 def parcel_history(
@@ -95,12 +102,15 @@ def parcel_history(
     fetch: Fetcher = fetch_daily_stats,
     fetch_composites: CompositeFetcher | None = None,
     model: CropModel | None = None,
+    valleys: Path | None = None,
 ) -> ParcelHistory:
     """Build a parcel's history from an uploaded KML/KMZ/GeoJSON file.
 
     Pass `fetch_composites` (e.g. `sentinel.fetch_monthly_composites`) to also compute
     % active area per campaign, and also `model` (the trained crop model) to predict the
-    crop of each campaign from the same composites, with all their bands.
+    crop of each campaign from the same composites, with all their bands. Pass `valleys`
+    (data/valley) for the neighbor comparison of a parcel inside a counted valley; it reads
+    the valley's saved data and makes no satellite request.
 
     Raises:
         ingest.ParcelError: the file isn't a usable parcel (nothing is downloaded then).
@@ -123,6 +133,7 @@ def parcel_history(
 
     clean = clean_series(daily.observations)
     campaigns = campaign_metrics(clean)
+    neighbors = neighbor_report(parcel, valleys) if valleys is not None else None
     no_value = _CampaignResult(float("nan"), 0.0, failed=False)
     results = [areas.get(label, no_value) for label in campaigns.index]
     campaigns["active_area"] = [result.active_area for result in results]
@@ -137,7 +148,14 @@ def parcel_history(
         campaigns=campaigns,
         credits=sum(area.credits for area in areas.values()),
         active_area_failures=sum(area.failed for area in areas.values()),
-        flags=campaign_flags(campaigns),
+        flags=sorted(
+            [
+                *campaign_flags(campaigns),
+                *underperforming_flags(neighbors.bands if neighbors else []),
+            ],
+            key=lambda flag: flag.campaign,
+        ),
+        neighbors=neighbors,
     )
 
 

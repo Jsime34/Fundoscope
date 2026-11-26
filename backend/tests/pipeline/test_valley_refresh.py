@@ -17,16 +17,18 @@ from shapely.geometry import box, mapping
 from fundoscope.ingest import ParcelError
 from fundoscope.pipeline.valley_refresh import (
     LAND_COVER,
-    LATEST_FILE,
     LOG_FILE,
     Request,
+    on_grid,
+    plan_refresh,
+    refresh_valley,
+)
+from fundoscope.pipeline.valley_store import (
+    LATEST_FILE,
     ValleyError,
     load_month,
     load_valley,
-    on_grid,
     peak_ndvi,
-    plan_refresh,
-    refresh_valley,
     save_month,
     valley_dir,
 )

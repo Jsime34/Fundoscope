@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 
 from fundoscope.api import cache
 from fundoscope.api.schemas import HistoryOut, history_out
+from fundoscope.api.valley import valleys_folder
 from fundoscope.config import get_settings
 from fundoscope.ingest import ParcelError
 from fundoscope.ml import CropModel
@@ -74,6 +75,7 @@ def post_history(
     model: Annotated[CropModel | None, Depends(crop_model)],
     folder: Annotated[Path, Depends(cache_folder)],
     day: Annotated[date, Depends(today)],
+    valleys: Annotated[Path, Depends(valleys_folder)],
 ) -> HistoryOut:
     """Validate the parcel, download 8 years of Sentinel-2 data, and summarize each campaign.
 
@@ -96,6 +98,7 @@ def post_history(
             fetch=fetch,
             fetch_composites=fetch_composites,
             model=model,
+            valleys=valleys,
         )
     except ParcelError as exc:
         raise HTTPException(422, str(exc)) from exc

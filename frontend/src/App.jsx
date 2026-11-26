@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { fetchHistory } from "./api";
 import CampaignTable from "./components/CampaignTable";
 import FlagsPanel from "./components/FlagsPanel";
+import NeighborsPanel from "./components/NeighborsPanel";
 import NdviChart from "./components/NdviChart";
 import ParcelMap from "./components/ParcelMap";
 import SummaryCard from "./components/SummaryCard";
@@ -95,6 +96,7 @@ export default function App() {
                 key={JSON.stringify(result.parcel.bounds)}
                 geometry={result.parcel.geometry}
                 bounds={result.parcel.bounds}
+                ring={result.neighbors?.ring ?? null}
               />
             </div>
           </div>
@@ -114,6 +116,11 @@ export default function App() {
           <div className="card">
             <h2>Campaign by campaign</h2>
             <CampaignTable campaigns={result.campaigns} />
+          </div>
+
+          <div className="card">
+            <h2>Compared with the farmland around it</h2>
+            <NeighborsPanel neighbors={result.neighbors ?? null} />
           </div>
 
           <div className="card">

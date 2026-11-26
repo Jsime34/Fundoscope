@@ -19,17 +19,25 @@ const NAMES = {
   normal_low: "Normal range from",
   normal_high: "Normal range to",
   robust_z: "Robust z-score",
+  parcel_ndvi: "Parcel mean NDVI",
+  neighbors_p10: "Neighbors' 10th percentile",
+  neighbors_median: "Neighbors' median",
+  neighbor_pixels: "Neighbor pixels (10 m)",
+  months_compared: "Months compared",
 };
 const SHARES = new Set(["active_area", "median_before", "threshold", "previous_confidence", "confidence"]);
+const NDVI = new Set(["parcel_ndvi", "neighbors_p10", "neighbors_median"]);
 
 function value(key, raw) {
   if (SHARES.has(key)) return percent(raw);
+  if (NDVI.has(key)) return raw.toFixed(2);
+  if (key === "neighbor_pixels") return raw.toLocaleString("en-US");
   if (typeof raw === "number" && !Number.isInteger(raw)) return raw.toFixed(1);
   return String(raw);
 }
 
-// Flags on the parcel's own history (abandonment, crop change, unusual campaign, low data),
-// each with a "Why?" that shows the values behind it.
+// Flags on the parcel's own history (abandonment, crop change, unusual campaign, low data)
+// and against its neighbors (underperforming), each with a "Why?" that shows the values.
 export default function FlagsPanel({ flags }) {
   if (!flags.length) {
     return <p className="hint">No flags: nothing unusual in this parcel's own history.</p>;

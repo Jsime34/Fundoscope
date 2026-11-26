@@ -6,7 +6,12 @@ import fundoscope.cli
 import fundoscope.cli.history as history_cli
 from fundoscope.analysis import Flag
 from fundoscope.cli import main
-from fundoscope.cli.history import default_output_dir, format_flags, run_history
+from fundoscope.cli.history import (
+    default_output_dir,
+    format_flags,
+    format_neighbors,
+    run_history,
+)
 from fundoscope.pipeline import parcel_history
 
 
@@ -168,3 +173,51 @@ def test_each_flag_is_one_line_with_its_campaign(parcel_geojson, fake_fetch):
         "  2022/23  Low data: only 9 clear dates.\n"
         "  2023/24  Crop change: onion, then alfalfa."
     )
+
+
+def test_the_neighbor_bands_are_printed_for_a_parcel_in_a_counted_valley(
+    tmp_path, neighbor_valley, fake_fetch, capsys
+):
+    valleys, parcel_file = neighbor_valley
+    path = tmp_path / "vecino.geojson"
+    path.write_bytes(parcel_file)
+
+    run_history(
+        path,
+        date(2022, 8, 1),
+        date(2024, 7, 31),
+        tmp_path / "out",
+        fetch=fake_fetch,
+        valleys=valleys,
+    )
+
+    printed = capsys.readouterr().out
+    assert "Neighbors (farmland 50 m to 2 km around the parcel, valley demo):" in printed
+    assert "below p10" in printed and "UNDERPERFORMING" in printed
+    assert "2026/27 (4 mo)" in printed
+
+
+def test_outside_the_pilot_area_the_neighbors_get_a_note(
+    tmp_path, parcel_geojson, fake_fetch, capsys
+):
+    path = tmp_path / "lote.geojson"
+    path.write_bytes(parcel_geojson)
+
+    run_history(
+        path,
+        date(2022, 8, 1),
+        date(2024, 7, 31),
+        tmp_path / "out",
+        fetch=fake_fetch,
+        valleys=tmp_path,
+    )
+
+    assert "Neighbors: The neighbor comparison is only available" in capsys.readouterr().out
+
+
+def test_without_a_comparison_the_neighbors_say_so(parcel_geojson, fake_fetch):
+    history = parcel_history(
+        parcel_geojson, "lote.geojson", date(2022, 8, 1), date(2024, 7, 31), fetch=fake_fetch
+    )
+
+    assert format_neighbors(history) == "Neighbors: not compared."

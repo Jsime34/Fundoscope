@@ -28,6 +28,7 @@ def client(tmp_path, fake_fetch, fake_composites):
         history_api.crop_model: lambda: None,
         history_api.cache_folder: lambda: tmp_path / "cache",
         history_api.today: lambda: TODAY,
+        history_api.valleys_folder: lambda: tmp_path / "valleys",
     }
     yield TestClient(app)
     app.dependency_overrides = {}
@@ -152,3 +153,32 @@ def test_flags_are_part_of_the_answer(client, parcel_geojson, fake_fetch):
             "evidence": {"active_area": 0.2},
         }
     ]
+
+
+def test_a_parcel_outside_the_pilot_area_gets_a_note(client, parcel_geojson):
+    neighbors = upload(client, parcel_geojson).json()["neighbors"]
+
+    assert neighbors["valley"] is None and neighbors["bands"] == []
+    assert "only available inside the pilot area" in neighbors["note"]
+
+
+def test_a_parcel_inside_a_counted_valley_is_compared_with_its_neighbors(
+    client, neighbor_valley, fake_fetch
+):
+    valleys, parcel_file = neighbor_valley
+    app.dependency_overrides[history_api.valleys_folder] = lambda: valleys
+
+    body = upload(client, parcel_file, "vecino.geojson").json()
+
+    neighbors = body["neighbors"]
+    assert neighbors["valley"] == "demo"
+    assert neighbors["ring"]["type"] == "Polygon"
+    first = neighbors["bands"][0]
+    assert (first["campaign"], first["band"], first["underperforming"]) == (
+        "2024/25",
+        "below p10",
+        True,
+    )
+    assert first["p10"] < first["p50"] < first["p90"]
+    assert [b["campaign"] for b in neighbors["bands"]] == ["2024/25", "2025/26", "2026/27"]
+    assert any(flag["kind"] == "underperforming" for flag in body["flags"])

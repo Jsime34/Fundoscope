@@ -38,6 +38,7 @@ def run_history(
     fetch: Fetcher | None = None,
     fetch_composites: CompositeFetcher | None = None,
     model: CropModel | None = None,
+    valleys: Path | None = None,
 ) -> int:
     """Download, compute, print, and save a parcel's history. Returns the exit code.
 
@@ -51,7 +52,7 @@ def run_history(
         print(f"Can't read {file}: {exc}")
         return 1
 
-    options = {}
+    options: dict = {"valleys": valleys or get_settings().data_dir / "valley"}
     if fetch:
         options["fetch"] = fetch
     if active_area:
@@ -76,6 +77,7 @@ def run_history(
     else:
         print("\n" + format_table(history.campaigns, with_active_area=active_area))
         print("\n" + format_flags(history))
+        print("\n" + format_neighbors(history))
 
     out = out or default_output_dir(history.parcel.name or file.stem)
     save_outputs(history, out)
@@ -105,6 +107,25 @@ def summary(history: ParcelHistory) -> str:
         lines.append(
             f"Note: openEO failed for {history.active_area_failures} campaigns; "
             "their active area is left empty."
+        )
+    return "\n".join(lines)
+
+
+def format_neighbors(history: ParcelHistory) -> str:
+    """FR-08: each campaign's band among the farmland 50 m to 2 km around the parcel."""
+    report = history.neighbors
+    if report is None:
+        return "Neighbors: not compared."
+    if not report.bands:
+        return f"Neighbors: {report.note}"
+    lines = [f"Neighbors (farmland 50 m to 2 km around the parcel, valley {report.valley}):"]
+    for band in report.bands:
+        label = band.campaign if band.months == 12 else f"{band.campaign} ({band.months} mo)"
+        mark = "  UNDERPERFORMING" if band.underperforming else ""
+        lines.append(
+            f"  {label:<16} mean NDVI {band.parcel_ndvi:.2f}  {band.band:<9}  (neighbors: "
+            f"p10 {band.percentiles[10]:.2f}, median {band.percentiles[50]:.2f}, "
+            f"p90 {band.percentiles[90]:.2f}; {band.neighbor_pixels:,} pixels){mark}"
         )
     return "\n".join(lines)
 

@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from fundoscope.config import get_settings
-from fundoscope.pipeline.valley_refresh import LATEST_FILE, MAPS_DIR
+from fundoscope.pipeline.valley_store import LATEST_FILE, MAPS_DIR
 
 NAME = r"^[a-z0-9][a-z0-9_-]*$"  # slugs, count keys, and image names: no paths
 IMAGE_MAX_AGE_S = 3600

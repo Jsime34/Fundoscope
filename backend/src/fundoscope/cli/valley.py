@@ -11,18 +11,20 @@ from typing import Any
 
 from fundoscope.cli.model import default_models_dir
 from fundoscope.ingest import ParcelError
-from fundoscope.pipeline.training_data import WORKERS
 from fundoscope.pipeline.valley_refresh import (
-    LATEST_FILE,
-    MAPS_DIR,
+    WORKERS,
     CountResult,
     Download,
     Plan,
     Refresh,
-    ValleyError,
-    load_valley,
     plan_refresh,
     refresh_valley,
+)
+from fundoscope.pipeline.valley_store import (
+    LATEST_FILE,
+    MAPS_DIR,
+    ValleyError,
+    load_valley,
     valley_dir,
 )
 from fundoscope.sentinel import CreditBudget, batch_cap

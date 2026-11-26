@@ -93,6 +93,30 @@ h1, h2, h3, p { margin: 0; }
 /* Sized by height, not absolute positioning: MapLibre's own CSS sets position: relative. */
 .map { width: 100%; height: 100%; min-height: 420px; }
 
+.map-wrap { position: relative; width: 100%; height: 100%; min-height: 420px; }
+.map-toggle {
+  position: absolute; top: 10px; left: 10px; display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(252, 252, 251, 0.92); border-radius: 6px; padding: 5px 9px; font-size: 13px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15); cursor: pointer;
+}
+.map-toggle input { accent-color: var(--brand); }
+
+/* Neighbors (FR-08) */
+.neighbor-rows { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 14px; }
+.neighbor-row { display: grid; grid-template-columns: 170px 1fr 150px; grid-template-areas: "campaign chart values" "text chart values"; gap: 2px 16px; align-items: center; }
+.neighbor-campaign { grid-area: campaign; font-weight: 650; font-variant-numeric: tabular-nums; }
+.neighbor-text { grid-area: text; color: var(--ink-2); font-size: 13px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.neighbor-chart { grid-area: chart; position: relative; display: block; height: 22px; }
+.neighbor-chart .outer { position: absolute; top: 7px; height: 8px; border-radius: 4px; background: var(--ndvi-light); opacity: 0.45; }
+.neighbor-chart .inner { position: absolute; top: 7px; height: 8px; border-radius: 4px; background: var(--ndvi-light); }
+.neighbor-chart .median { position: absolute; top: 3px; width: 2px; height: 16px; background: var(--ink); transform: translateX(-50%); }
+.neighbor-chart .parcel { position: absolute; top: 5px; width: 12px; height: 12px; border-radius: 50%; background: var(--ndvi); transform: translateX(-50%); box-shadow: 0 0 0 2px var(--surface); }
+.neighbor-values { grid-area: values; text-align: right; font-variant-numeric: tabular-nums; font-size: 13.5px; }
+.neighbor-values .muted { color: var(--muted); font-size: 12.5px; }
+@media (max-width: 700px) {
+  .neighbor-row { grid-template-columns: 1fr auto; grid-template-areas: "campaign values" "text text" "chart chart"; }
+}
+
 /* Chart */
 .chart-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
 .chart-tooltip {

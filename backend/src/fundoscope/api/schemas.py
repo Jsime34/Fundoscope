@@ -8,6 +8,7 @@ from shapely.geometry import mapping
 
 from fundoscope.ingest import zone_label
 from fundoscope.pipeline import ParcelHistory
+from fundoscope.pipeline.neighbors import NeighborReport
 
 
 class ParcelOut(BaseModel):
@@ -64,11 +65,34 @@ class ObservationPoint(BaseModel):
     ndvi: float
 
 
+class NeighborBandOut(BaseModel):
+    campaign: str
+    months: int  # months compared: 12 once the campaign is over
+    parcel_ndvi: float  # mean NDVI of the parcel's pixels
+    parcel_pixels: int
+    neighbor_pixels: int
+    p10: float
+    p25: float
+    p50: float
+    p75: float
+    p90: float
+    band: str  # "below p10", "p10-p25", ..., "above p90"
+    underperforming: bool
+
+
+class NeighborsOut(BaseModel):
+    valley: str | None  # None: the parcel is outside every counted valley
+    note: str  # why there are no bands, if there are none
+    ring: dict | None  # GeoJSON of the 50 m-2 km ring, WGS84 lon/lat
+    bands: list[NeighborBandOut]
+
+
 class HistoryOut(BaseModel):
     parcel: ParcelOut
     summary: SummaryOut
     campaigns: list[CampaignOut]
     flags: list[FlagOut] = []
+    neighbors: NeighborsOut | None = None
     series: list[SeriesPoint]  # cleaned and smoothed, every 5 days
     observations: list[ObservationPoint]  # clear satellite dates actually used
 
@@ -122,6 +146,7 @@ def history_out(history: ParcelHistory) -> HistoryOut:
             )
             for flag in history.flags
         ],
+        neighbors=neighbors_out(history.neighbors),
         series=[
             SeriesPoint(
                 date=day.date(), ndvi=_num(row["ndvi_smooth"]), ndwi=_num(row["ndwi_smooth"])
@@ -131,6 +156,30 @@ def history_out(history: ParcelHistory) -> HistoryOut:
         observations=[
             ObservationPoint(date=day.date(), ndvi=round(float(ndvi), 4))
             for day, ndvi in clean.observations["ndvi"].items()
+        ],
+    )
+
+
+def neighbors_out(report: NeighborReport | None) -> NeighborsOut | None:
+    """The neighbor comparison in the API's shape (None when it wasn't computed)."""
+    if report is None:
+        return None
+    return NeighborsOut(
+        valley=report.valley,
+        note=report.note,
+        ring=mapping(report.ring) if report.ring is not None else None,
+        bands=[
+            NeighborBandOut(
+                campaign=band.campaign,
+                months=band.months,
+                parcel_ndvi=round(band.parcel_ndvi, 4),
+                parcel_pixels=band.parcel_pixels,
+                neighbor_pixels=band.neighbor_pixels,
+                **{f"p{p}": round(value, 4) for p, value in band.percentiles.items()},
+                band=band.band,
+                underperforming=band.underperforming,
+            )
+            for band in report.bands
         ],
     )
 

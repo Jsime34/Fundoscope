@@ -378,3 +378,82 @@ def valley_models(tmp_path_factory):
     }
     (folder / CARD_FILE).write_text(json.dumps(card), encoding="utf-8")
     return folder
+
+
+# --- the neighbor comparison (FR-08) ----------------------------------------------------------
+
+_NEIGHBOR_CORNER = to_utm(Point(-75.70, -14.05), 32718)  # public farmland near Ica
+NEIGHBOR_WEST = float(np.floor(_NEIGHBOR_CORNER.x / 10) * 10)
+NEIGHBOR_SOUTH = float(np.floor(_NEIGHBOR_CORNER.y / 10) * 10)
+# The parcel's NDVI in each campaign: below every neighbor, above every neighbor, in between.
+PARCEL_NDVI = {"2024/25": 0.15, "2025/26": 0.9, "2026/27": 0.5}
+
+
+def parcel_square_geojson(x: float, y: float, size: float = 80.0) -> bytes:
+    """A size x size m square parcel with its south-west corner at UTM (x, y), as GeoJSON."""
+    square = from_utm(box(x, y, x + size, y + size), 32718)
+    return json.dumps(
+        {"type": "Feature", "properties": {"name": "Vecino"}, "geometry": mapping(square)}
+    ).encode()
+
+
+@pytest.fixture
+def neighbor_valley(tmp_path):
+    """A counted valley 400 m x 400 m near Ica, written by hand: (valleys folder, parcel file).
+
+    Every neighbor pixel's NDVI grows from west to east (0.2 + 0.015 per column); the 80 m
+    parcel in the middle has `PARCEL_NDVI` of its campaign. Columns 0-1 aren't farmland.
+    """
+    from fundoscope.pipeline.valley_store import save_grid, save_month
+    from fundoscope.sentinel import COMPOSITE_BANDS
+    from fundoscope.valley import valley
+    from fundoscope.valley.season import Count
+
+    folder = tmp_path / "valleys" / "demo"
+    area = box(NEIGHBOR_WEST, NEIGHBOR_SOUTH, NEIGHBOR_WEST + 400, NEIGHBOR_SOUTH + 400)
+    demo = valley("demo", area, 32718)
+    folder.mkdir(parents=True)
+    feature = {
+        "type": "Feature",
+        "properties": {},
+        "geometry": mapping(from_utm(area.buffer(-1, join_style="mitre"), 32718)),
+    }
+    (folder / "aoi.geojson").write_text(json.dumps(feature), encoding="utf-8")
+    save_grid(demo, folder)
+    tile = demo.tiles[0]
+    columns = np.tile(np.arange(len(tile.x)), (len(tile.y), 1))
+    parcel = (
+        (columns >= 16)
+        & (columns < 24)
+        & (np.arange(len(tile.y))[:, None] >= 16)
+        & (np.arange(len(tile.y))[:, None] < 24)
+    )
+    counts = [
+        {"campaign": "2026/27", "months": 4, "through": "2026-11-22", "map": "maps/now.nc"},
+        {"campaign": "2025/26", "months": 4, "through": "2025-11-22", "map": "maps/then.nc"},
+        {"campaign": "2025/26", "months": 12, "through": "2026-07-31", "map": "maps/a.nc"},
+        {"campaign": "2024/25", "months": 12, "through": "2025-07-31", "map": "maps/b.nc"},
+    ]
+    from datetime import date
+
+    for item in counts:
+        count = Count(item["campaign"], item["months"], date.fromisoformat(item["through"]))
+        for key in count.month_keys():
+            values = np.where(parcel, PARCEL_NDVI[count.campaign], 0.2 + 0.015 * columns)
+            data = np.full((len(COMPOSITE_BANDS), len(tile.y), len(tile.x)), 0.1)
+            data[COMPOSITE_BANDS.index("B04")] = 0.05
+            data[COMPOSITE_BANDS.index("B08")] = _ndvi_nir(values)
+            layer = xr.DataArray(
+                data,
+                dims=("band", "y", "x"),
+                coords={"band": list(COMPOSITE_BANDS), "y": tile.y, "x": tile.x},
+            )
+            (folder / "composites" / tile.id).mkdir(parents=True, exist_ok=True)
+            save_month(folder / "composites" / tile.id / key.file_name, layer)
+    (folder / "maps").mkdir()
+    codes = np.where(columns >= 2, 1, 0).astype(np.uint8)
+    xr.DataArray(
+        codes, dims=("y", "x"), coords={"y": tile.y, "x": tile.x}, name="crop_class"
+    ).to_netcdf(folder / "maps" / "now.nc", engine="h5netcdf")
+    (folder / "latest.json").write_text(json.dumps({"counts": counts}), encoding="utf-8")
+    return folder.parent, parcel_square_geojson(NEIGHBOR_WEST + 160, NEIGHBOR_SOUTH + 160)
