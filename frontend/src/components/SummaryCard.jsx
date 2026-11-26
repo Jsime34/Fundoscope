@@ -1,8 +1,12 @@
 import { shortDate } from "../format";
 
-export default function SummaryCard({ result }) {
+// `run` is the analysis job that just updated the report (null when it was reopened).
+export default function SummaryCard({ result, run }) {
   const { parcel, summary, campaigns } = result;
   const complete = campaigns.filter((c) => c.complete).length;
+  const downloaded = run && (run.processing_units > 0 || run.credits > 0);
+  const firstRun =
+    downloaded && run.processing_units === summary.processing_units && run.credits === summary.credits;
   return (
     <div className="card">
       <div className="parcel-name">{parcel.name || "Unnamed parcel"}</div>
@@ -24,8 +28,14 @@ export default function SummaryCard({ result }) {
         </dd>
         <dt>Cost</dt>
         <dd>
-          {summary.processing_units.toFixed(1)} processing units · {summary.credits.toFixed(0)} credits{" "}
-          {summary.cached && <span className="badge cached">stored: nothing new downloaded</span>}
+          {summary.processing_units.toFixed(1)} processing units · {summary.credits.toFixed(0)} credits
+          so far{" "}
+          {!downloaded && <span className="badge cached">stored: nothing new downloaded</span>}
+          {downloaded && !firstRun && (
+            <span className="cost-update">
+              (this update: {run.processing_units.toFixed(1)} units · {run.credits.toFixed(0)} credits)
+            </span>
+          )}
         </dd>
       </dl>
       {parcel.repaired && (

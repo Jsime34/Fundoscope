@@ -12,7 +12,16 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 
 from fundoscope.config import get_settings
-from fundoscope.db import MemoryParcelStore, SqlParcelStore, make_engine, session_scope, upgrade
+from fundoscope.db import (
+    AutocommitParcelStore,
+    MemoryJobStore,
+    MemoryParcelStore,
+    SqlJobStore,
+    SqlParcelStore,
+    make_engine,
+    session_scope,
+    upgrade,
+)
 
 TEST_DATABASE = "fundoscope_test"
 
@@ -53,9 +62,20 @@ def sql_store(db_engine):
         yield SqlParcelStore(session)
 
 
-@pytest.fixture(params=["memory", "postgis"])
+@pytest.fixture(params=["memory", "postgis", "postgis-autocommit"])
 def any_store(request):
-    """The same tests for both stores."""
+    """The same tests for every parcel store."""
     if request.param == "memory":
         return MemoryParcelStore()
-    return request.getfixturevalue("sql_store")
+    if request.param == "postgis":
+        return request.getfixturevalue("sql_store")
+    return AutocommitParcelStore(request.getfixturevalue("db_engine"))
+
+
+@pytest.fixture(params=["memory", "postgis"])
+def any_jobs(request):
+    """The same tests for both job stores: (job store, parcel store for the parcels)."""
+    if request.param == "memory":
+        return MemoryJobStore(), MemoryParcelStore()
+    engine = request.getfixturevalue("db_engine")
+    return SqlJobStore(engine), AutocommitParcelStore(engine)

@@ -1,7 +1,9 @@
 """The parcel store in PostGIS (FR-02).
 
-Works inside a SQLAlchemy session that the caller opens and commits, so one analysis is
-saved all at once or not at all.
+`SqlParcelStore` works inside a SQLAlchemy session that the caller opens and commits.
+`AutocommitParcelStore` runs each call in its own transaction instead, for background
+jobs: nothing stays open while satellite data download between reading and saving a
+history.
 """
 
 from datetime import date
@@ -10,7 +12,7 @@ from uuid import UUID
 import pandas as pd
 from geoalchemy2.shape import from_shape, to_shape
 from shapely.geometry.base import BaseGeometry
-from sqlalchemy import select
+from sqlalchemy import Engine, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -23,6 +25,7 @@ from fundoscope.db.records import (
     empty_observations,
     none_if_nan,
 )
+from fundoscope.db.session import session_scope
 
 SRID = 4326
 
@@ -137,6 +140,51 @@ class SqlParcelStore:
             )
         self.session.get_one(ParcelRow, parcel_id).observed_through = observed_through
         self.session.flush()
+
+
+class AutocommitParcelStore:
+    """The PostGIS store with each call committed in its own transaction."""
+
+    def __init__(self, bind: Engine | None = None) -> None:
+        self.bind = bind
+
+    def find(self, key: str) -> StoredParcel | None:
+        with session_scope(self.bind) as session:
+            return SqlParcelStore(session).find(key)
+
+    def add(
+        self,
+        key: str,
+        name: str | None,
+        geometry: BaseGeometry,
+        utm_epsg: int,
+        area_ha: float,
+        repaired: bool,
+    ) -> StoredParcel:
+        with session_scope(self.bind) as session:
+            return SqlParcelStore(session).add(key, name, geometry, utm_epsg, area_ha, repaired)
+
+    def get(self, parcel_id: UUID) -> StoredParcel | None:
+        with session_scope(self.bind) as session:
+            return SqlParcelStore(session).get(parcel_id)
+
+    def parcels(self) -> list[StoredParcel]:
+        with session_scope(self.bind) as session:
+            return SqlParcelStore(session).parcels()
+
+    def load(self, parcel_id: UUID) -> StoredHistory:
+        with session_scope(self.bind) as session:
+            return SqlParcelStore(session).load(parcel_id)
+
+    def save(
+        self,
+        parcel_id: UUID,
+        observations: pd.DataFrame,
+        observed_through: date,
+        campaigns: dict[str, StoredCampaign],
+    ) -> None:
+        with session_scope(self.bind) as session:
+            SqlParcelStore(session).save(parcel_id, observations, observed_through, campaigns)
 
 
 def _parcel(row: ParcelRow) -> StoredParcel:

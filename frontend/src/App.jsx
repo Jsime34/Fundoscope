@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { fetchHistory, fetchStoredHistory } from "./api";
+import { fetchStoredHistory, startAnalysis, uploadParcel, waitForJob } from "./api";
 import CampaignTable from "./components/CampaignTable";
 import FlagsPanel from "./components/FlagsPanel";
 import NeighborsPanel from "./components/NeighborsPanel";
@@ -21,13 +21,27 @@ function useElapsedSeconds(running) {
   return seconds;
 }
 
-function Status({ state, fileName, seconds, error }) {
+function Status({ state, fileName, seconds, error, step, job }) {
   if (state === "loading") {
+    const progress = job?.progress ?? 0;
     return (
       <div className="status loading" role="status">
-        <span className="spinner" />
-        Analyzing {fileName}: downloading 8 years of Sentinel-2 data ({seconds} s). The first run
-        takes about 2–3 minutes; a repeat is instant.
+        <div className="status-line">
+          <span className="spinner" />
+          {fileName}: {job?.step ?? step} ({seconds} s)
+        </div>
+        {job && (
+          <>
+            <progress className="job-progress" value={progress} max={100} aria-label="Analysis progress">
+              {progress} %
+            </progress>
+            <div className="status-hint">
+              The first analysis downloads 8 years of Sentinel-2 data (about 2–3 minutes); later ones
+              only download what is new. It runs on the server: if you close this page, the parcel
+              will be under "Analyzed before" once it is done.
+            </div>
+          </>
+        )}
       </div>
     );
   }
@@ -43,17 +57,24 @@ function Status({ state, fileName, seconds, error }) {
 
 export default function App() {
   const [state, setState] = useState("idle"); // idle | loading | done | error
-  const [result, setResult] = useState(null);
+  const [result, setResult] = useState(null); // the report on screen
+  const [run, setRun] = useState(null); // the analysis job that produced it (null: reopened)
+  const [job, setJob] = useState(null); // the analysis in progress (FR-13)
+  const [step, setStep] = useState(""); // what is happening before a job exists
   const [error, setError] = useState("");
   const [fileName, setFileName] = useState("");
   const seconds = useElapsedSeconds(state === "loading");
 
-  async function load(name, request) {
+  async function load(name, firstStep, request) {
     setFileName(name);
+    setStep(firstStep);
+    setJob(null);
     setState("loading");
     setError("");
     try {
-      setResult(await request());
+      const loaded = await request();
+      setResult(loaded.report);
+      setRun(loaded.run);
       setState("done");
     } catch (err) {
       setError(err.message);
@@ -61,11 +82,26 @@ export default function App() {
     }
   }
 
-  const analyze = (file) => load(file.name, () => fetchHistory(file));
-  const reopen = (parcel) => load(parcel.name ?? "the parcel", () => fetchStoredHistory(parcel.id));
+  // Queue the analysis, follow its progress, then read the stored report.
+  async function runAnalysis(parcelId) {
+    const done = await waitForJob(await startAnalysis(parcelId), setJob);
+    return { report: await fetchStoredHistory(parcelId), run: done };
+  }
+
+  const analyze = (file) =>
+    load(file.name, "uploading the parcel", async () => runAnalysis((await uploadParcel(file)).id));
+  const reopen = (parcel) =>
+    parcel.observed_through
+      ? load(parcel.name ?? "the parcel", "reading the stored report", async () => ({
+          report: await fetchStoredHistory(parcel.id),
+          run: null,
+        }))
+      : load(parcel.name ?? "the parcel", "starting the analysis", () => runAnalysis(parcel.id));
 
   const busy = state === "loading";
-  const status = <Status state={state} fileName={fileName} seconds={seconds} error={error} />;
+  const status = (
+    <Status state={state} fileName={fileName} seconds={seconds} error={error} step={step} job={job} />
+  );
 
   return (
     <div className="app">
@@ -90,7 +126,7 @@ export default function App() {
         <main className="grid">
           <div className="grid top">
             <div className="stack">
-              <SummaryCard result={result} />
+              <SummaryCard result={result} run={run} />
               <div className="card">
                 <UploadPanel onFile={analyze} busy={busy} />
                 {status}

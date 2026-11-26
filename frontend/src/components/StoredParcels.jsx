@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { fetchStoredParcels } from "../api";
 import { shortDate } from "../format";
 
-// The parcels already analyzed (stored in the database): open one without downloading again.
+// The stored parcels: open an analyzed one without downloading again, or analyze one that
+// was uploaded but never analyzed (e.g. its analysis failed).
 export default function StoredParcels({ onOpen, busy }) {
   const [parcels, setParcels] = useState(null);
 
@@ -23,7 +24,10 @@ export default function StoredParcels({ onOpen, busy }) {
             <button type="button" disabled={busy} onClick={() => onOpen(parcel)}>
               <span className="stored-name">{parcel.name ?? "Unnamed parcel"}</span>
               <span className="stored-meta">
-                {parcel.area_ha.toFixed(1)} ha · data to {shortDate(parcel.observed_through)}
+                {parcel.area_ha.toFixed(1)} ha ·{" "}
+                {parcel.observed_through
+                  ? `data to ${shortDate(parcel.observed_through)}`
+                  : "not analyzed yet"}
               </span>
             </button>
           </li>

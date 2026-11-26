@@ -270,3 +270,34 @@ def test_nothing_stored_and_nothing_downloaded_is_an_empty_history(parcel_geojso
 
     assert history.daily.observations.empty and history.campaigns.empty
     assert history.daily.processing_units == 0
+
+
+def test_progress_is_reported_as_each_download_finishes(
+    parcel_geojson, fake_fetch, fake_composites
+):
+    from fundoscope.db import StoredHistory
+    from fundoscope.pipeline.parcel_history import history_of
+
+    parcel = parse_parcel(parcel_geojson, "lote.geojson")
+    seen = []
+
+    history = history_of(
+        parcel,
+        end=date(2024, 7, 31),
+        fetch=fake_fetch,
+        fetch_composites=fake_composites,
+        on_progress=lambda done, total: seen.append((done, total)),
+    )
+
+    assert seen == [(done, 7) for done in range(8)]  # daily statistics + 6 campaigns
+    stored = StoredHistory(history.daily.observations, date(2024, 7, 31), history.campaign_results)
+    seen.clear()
+    history_of(
+        parcel,
+        end=date(2024, 7, 31),
+        fetch=fake_fetch,
+        fetch_composites=fake_composites,
+        stored=stored,
+        on_progress=lambda done, total: seen.append((done, total)),
+    )
+    assert seen == [(0, 0)]  # everything stored: nothing to download

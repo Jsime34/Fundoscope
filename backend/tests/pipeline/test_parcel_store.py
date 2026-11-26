@@ -1,4 +1,4 @@
-"""Analyzing and reopening stored parcels (FR-02), with the in-memory store and fakes."""
+"""Storing, updating, and reopening parcels (FR-02), with the in-memory store and fakes."""
 
 from datetime import date
 
@@ -6,22 +6,26 @@ import pytest
 
 from fundoscope.db import MemoryParcelStore
 from fundoscope.ingest import parse_parcel
-from fundoscope.pipeline.parcel_store import analyze_parcel, parcel_key, reopen_parcel
+from fundoscope.pipeline.parcel_store import (
+    parcel_key,
+    reopen_parcel,
+    store_parcel,
+    update_parcel,
+)
 from fundoscope.sentinel import ARCHIVE_START, SentinelError
 
 TODAY = date(2024, 7, 31)  # campaigns 2018/19 to 2023/24, all over
 
 
 def analyze(data, store, fetch, composites=None, today=TODAY, **options):
-    return analyze_parcel(
-        data,
-        "lote.geojson",
-        store,
-        today=today,
-        fetch=fetch,
-        fetch_composites=composites,
-        **options,
+    parcel = store_parcel(data, "lote.geojson", store)
+    return update_parcel(
+        parcel.id, store, today=today, fetch=fetch, fetch_composites=composites, **options
     )
+
+
+def downloaded(analysis) -> bool:
+    return bool(analysis.history.daily.requests or analysis.history.credits)
 
 
 def test_the_same_outline_is_the_same_parcel_whatever_the_file(parcel_geojson):
@@ -39,13 +43,26 @@ def test_the_same_outline_is_the_same_parcel_whatever_the_file(parcel_geojson):
     assert parcel_key(parse_parcel(kml, "lote.kml")) == parcel_key(geojson)
 
 
+def test_storing_a_parcel_downloads_nothing_and_stores_an_outline_once(parcel_geojson):
+    store = MemoryParcelStore()
+
+    parcel = store_parcel(parcel_geojson, "lote.geojson", store)
+
+    assert (parcel.name, parcel.observed_through) == ("Lote demo", None)
+    assert parcel.area_ha == pytest.approx(9.0)
+    assert store_parcel(parcel_geojson, "again.geojson", store) == parcel
+    assert store.parcels() == [parcel]
+
+
 def test_the_first_analysis_stores_everything(parcel_geojson, fake_fetch, fake_composites):
     store = MemoryParcelStore()
     seen = []
 
-    analysis = analyze(parcel_geojson, store, fake_fetch, fake_composites, on_parcel=seen.append)
+    analysis = analyze(
+        parcel_geojson, store, fake_fetch, fake_composites, on_progress=lambda *p: seen.append(p)
+    )
 
-    assert seen == [analysis.parcel_id] and analysis.downloaded
+    assert downloaded(analysis) and seen[0] == (0, 7) and seen[-1] == (7, 7)
     assert fake_fetch.calls[0][2:] == (ARCHIVE_START, TODAY)
     stored = store.load(analysis.parcel_id)
     assert stored.observed_through == TODAY
@@ -60,7 +77,7 @@ def test_the_same_day_downloads_nothing(parcel_geojson, fake_fetch, fake_composi
 
     again = analyze(parcel_geojson, store, fake_fetch, fake_composites)
 
-    assert again.parcel_id == first.parcel_id and not again.downloaded
+    assert again.parcel_id == first.parcel_id and not downloaded(again)
     assert len(fake_fetch.calls) == 1 and len(fake_composites.calls) == 6
     assert again.history.campaigns.equals(first.history.campaigns)
     assert again.history.daily.processing_units == 0
@@ -109,7 +126,7 @@ def test_a_stored_report_is_rebuilt_without_any_request(
     reopened = reopen_parcel(first.parcel_id, store)
 
     assert len(fake_fetch.calls) == 1 and len(fake_composites.calls) == 6
-    assert not reopened.downloaded
+    assert not downloaded(reopened)
     assert reopened.history.campaigns.equals(first.history.campaigns)
     assert reopened.history.parcel.area_ha == pytest.approx(first.history.parcel.area_ha)
 
@@ -124,6 +141,13 @@ def test_nothing_to_reopen(parcel_geojson):
 
     assert reopen_parcel(uuid4(), store) is None
     assert reopen_parcel(never.id, store) is None  # stored but never analyzed
+
+
+def test_an_unknown_parcel_cant_be_updated(fake_fetch):
+    from uuid import uuid4
+
+    with pytest.raises(LookupError, match="no stored parcel"):
+        update_parcel(uuid4(), MemoryParcelStore(), today=TODAY, fetch=fake_fetch)
 
 
 def test_a_failed_download_saves_no_history(parcel_geojson):

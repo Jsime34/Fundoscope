@@ -11,12 +11,13 @@ are requested one campaign at a time, two in parallel: one request for all 8 yea
 on the openEO side, while per-campaign requests have been reliable. A campaign whose request
 fails twice gets no active area (NaN) instead of failing the whole history.
 
-There is no database yet, so every run downloads again (about 20 processing units plus about
-60 openEO credits for 8 years of a small parcel). Caching comes with the `db` module.
+`history_of` starts from what is stored about the parcel (FR-02) and downloads only what is
+missing; `pipeline.parcel_store` reads and saves the store. A first 8-year history of a
+small parcel costs about 20 processing units plus about 60 openEO credits.
 """
 
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
@@ -60,6 +61,8 @@ from fundoscope.timeseries import (
 # Same call signatures as the sentinel functions; tests pass fakes that use no network.
 Fetcher = Callable[..., DailyStats]
 CompositeFetcher = Callable[..., MonthlyComposites]
+# Called with (requests done, requests in all) as the downloads finish (FR-13 progress).
+Progress = Callable[[int, int], None]
 
 COMPOSITE_WORKERS = 2  # openEO's free tier allows 2 requests at a time
 COMPOSITE_ATTEMPTS = 2
@@ -142,6 +145,7 @@ def history_of(
     model_version: str | None = None,
     valleys: Path | None = None,
     stored: StoredHistory | None = None,
+    on_progress: Progress | None = None,
 ) -> ParcelHistory:
     """The history of a validated parcel, starting from what is `stored` about it (FR-02).
 
@@ -150,6 +154,9 @@ def history_of(
     progress once a day (and again if the crop model changed: `model_version`). With
     `fetch=None` and `fetch_composites=None`, nothing is downloaded: the history is rebuilt
     from the stored data alone.
+
+    `on_progress` is called with (0, n) before the n downloads start (n may be 0), then
+    with (1, n), (2, n), ... as each one finishes.
 
     Raises:
         sentinel.SentinelError: the daily statistics could not be downloaded.
@@ -182,6 +189,11 @@ def history_of(
             )
             for label in to_compute
         }
+        downloads = [job for job in (daily_job, *area_jobs.values()) if job is not None]
+        if on_progress:
+            on_progress(0, len(downloads))
+            for done, _ in enumerate(as_completed(downloads), start=1):
+                on_progress(done, len(downloads))
         new = daily_job.result() if daily_job else DailyStats(empty_observations(), 0.0, 0, 0)
         fresh = {label: job.result() for label, job in area_jobs.items()}
 

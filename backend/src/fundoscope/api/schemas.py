@@ -1,19 +1,20 @@
 """JSON shapes returned by the API (what the front end receives)."""
 
 import math
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel
 from shapely.geometry import mapping
 
-from fundoscope.ingest import zone_label
+from fundoscope.db import DONE, Job, StoredParcel
+from fundoscope.ingest import Parcel, zone_label
 from fundoscope.pipeline import ParcelHistory
 from fundoscope.pipeline.neighbors import NeighborReport
 
 
 class ParcelOut(BaseModel):
-    id: str | None = None  # in the store (FR-02): reopen it with GET /api/parcels/{id}/history
+    id: str | None = None  # in the store (FR-02): analyze it, reopen its report
     name: str | None
     area_ha: float
     utm_epsg: int
@@ -29,10 +30,9 @@ class SummaryOut(BaseModel):
     last_date: date | None
     dropped_cloudy: int
     dropped_dips: int
-    processing_units: float
-    credits: float
+    processing_units: float  # spent on this parcel by all its analyses (FR-25)
+    credits: float  # openEO credits, likewise
     active_area_failures: int
-    cached: bool = False  # True: nothing had to be downloaded (all from the store)
 
 
 class CampaignOut(BaseModel):
@@ -89,6 +89,22 @@ class NeighborsOut(BaseModel):
     bands: list[NeighborBandOut]
 
 
+class JobOut(BaseModel):
+    id: UUID
+    parcel_id: UUID | None
+    kind: str  # "analyze"
+    status: str  # queued | running | done | failed
+    progress: int  # 0-100
+    step: str | None  # what it is doing now (or where it failed), in plain language
+    error: str | None  # why it failed, in plain language
+    processing_units: float  # spent by this job (FR-25)
+    credits: float
+    created_at: datetime | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    report: str | None  # once done: where to get the parcel's report
+
+
 class HistoryOut(BaseModel):
     parcel: ParcelOut
     summary: SummaryOut
@@ -99,33 +115,63 @@ class HistoryOut(BaseModel):
     observations: list[ObservationPoint]  # clear satellite dates actually used
 
 
+def parcel_out(parcel: Parcel | StoredParcel, parcel_id: UUID | None = None) -> ParcelOut:
+    """A parcel (validated or stored) in the API's JSON shape."""
+    return ParcelOut(
+        id=str(parcel_id) if parcel_id else None,
+        name=parcel.name,
+        area_ha=round(parcel.area_ha, 2),
+        utm_epsg=parcel.utm_epsg,
+        zone=zone_label(parcel.utm_epsg),
+        repaired=parcel.repaired,
+        geometry=mapping(parcel.geometry),
+        bounds=parcel.geometry.bounds,
+    )
+
+
+def job_out(job: Job) -> JobOut:
+    """A background job in the API's JSON shape."""
+    done = job.status == DONE and job.parcel_id is not None
+    return JobOut(
+        id=job.id,
+        parcel_id=job.parcel_id,
+        kind=job.kind,
+        status=job.status,
+        progress=job.progress,
+        step=job.step,
+        error=job.error,
+        processing_units=round(job.processing_units, 2),
+        credits=round(job.credits, 2),
+        created_at=job.created_at,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+        report=f"/api/parcels/{job.parcel_id}/history" if done else None,
+    )
+
+
 def history_out(
-    history: ParcelHistory, parcel_id: UUID | None = None, cached: bool = False
+    history: ParcelHistory,
+    parcel_id: UUID | None = None,
+    spent: tuple[float, float] | None = None,
 ) -> HistoryOut:
-    """Convert a pipeline result into the API's JSON shape (NaN becomes null)."""
+    """Convert a pipeline result into the API's JSON shape (NaN becomes null).
+
+    `spent` is the (processing units, credits) to report; by default, those of this run.
+    """
     parcel, daily, clean = history.parcel, history.daily, history.clean
     obs = daily.observations
+    units, credits = spent if spent is not None else (daily.processing_units, history.credits)
     return HistoryOut(
-        parcel=ParcelOut(
-            id=str(parcel_id) if parcel_id else None,
-            name=parcel.name,
-            area_ha=round(parcel.area_ha, 2),
-            utm_epsg=parcel.utm_epsg,
-            zone=zone_label(parcel.utm_epsg),
-            repaired=parcel.repaired,
-            geometry=mapping(parcel.geometry),
-            bounds=parcel.geometry.bounds,
-        ),
+        parcel=parcel_out(parcel, parcel_id),
         summary=SummaryOut(
             satellite_dates=len(obs),
             first_date=obs.index[0].date() if len(obs) else None,
             last_date=obs.index[-1].date() if len(obs) else None,
             dropped_cloudy=clean.dropped_cloudy,
             dropped_dips=clean.dropped_dips,
-            processing_units=round(daily.processing_units, 2),
-            credits=round(history.credits, 2),
+            processing_units=round(units, 2),
+            credits=round(credits, 2),
             active_area_failures=history.active_area_failures,
-            cached=cached,
         ),
         campaigns=[
             CampaignOut(

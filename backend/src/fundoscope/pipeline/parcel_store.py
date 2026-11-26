@@ -1,13 +1,13 @@
-"""Analyze and reopen stored parcels (FR-02).
+"""Store, update, and reopen parcels (FR-02).
 
-A parcel is stored the first time it is analyzed, keyed by its outline: the same outline
-uploaded again, in any file format, is the same parcel. Analyzing it again downloads only
-the dates after the last stored one (and the composites that aren't stored yet); reopening
-it rebuilds the report from the store alone, with no satellite request.
+A parcel is stored when it is uploaded, keyed by its outline: the same outline uploaded
+again, in any file format, is the same parcel. Updating it downloads only the dates after
+the last stored one (and the composites that aren't stored yet); reopening it rebuilds the
+report from the store alone, with no satellite request. The API runs updates as background
+jobs (`pipeline.jobs`, FR-13).
 """
 
 import hashlib
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -22,6 +22,7 @@ from fundoscope.pipeline.parcel_history import (
     CompositeFetcher,
     Fetcher,
     ParcelHistory,
+    Progress,
     history_of,
 )
 
@@ -40,12 +41,6 @@ class StoredAnalysis:
     parcel_id: UUID
     history: ParcelHistory
 
-    @property
-    def downloaded(self) -> bool:
-        """Whether this run made any satellite request."""
-        history = self.history
-        return bool(history.daily.requests or history.credits or history.active_area_failures)
-
 
 def parcel_key(parcel: Parcel) -> str:
     """A hash of the parcel's outline (WGS84, rounded to about 1 cm, normalized)."""
@@ -53,9 +48,23 @@ def parcel_key(parcel: Parcel) -> str:
     return hashlib.sha256(shapely.to_wkb(shape)).hexdigest()
 
 
-def analyze_parcel(
-    data: bytes,
-    filename: str,
+def store_parcel(data: bytes, filename: str, store: ParcelStore) -> StoredParcel:
+    """Validate an uploaded parcel and store it, unless the same outline is stored already.
+
+    Nothing is downloaded: `update_parcel` brings its history up to date.
+
+    Raises:
+        ingest.ParcelError: the file isn't a usable parcel (nothing is stored then).
+    """
+    parcel = parse_parcel(data, filename)
+    key = parcel_key(parcel)
+    return store.find(key) or store.add(
+        key, parcel.name, parcel.geometry, parcel.utm_epsg, parcel.area_ha, parcel.repaired
+    )
+
+
+def update_parcel(
+    parcel_id: UUID,
     store: ParcelStore,
     *,
     today: date,
@@ -64,27 +73,24 @@ def analyze_parcel(
     model: CropModel | None = None,
     model_version: str | None = None,
     valleys: Path | None = None,
-    on_parcel: Callable[[UUID], None] | None = None,
+    on_progress: Progress | None = None,
 ) -> StoredAnalysis:
-    """Store the parcel if it is new, bring its history up to `today`, and save it.
+    """Bring a stored parcel's history up to `today`, and save what is new.
 
-    `on_parcel` is called with the parcel's id as soon as it is stored, before downloading.
+    Only the dates after the stored ones are downloaded (see `history_of`, which also says
+    when `on_progress` is called).
 
     Raises:
-        ingest.ParcelError: the file isn't a usable parcel (nothing is stored then).
+        LookupError: there is no such parcel.
         sentinel.SentinelError: the daily statistics could not be downloaded (nothing new
             is saved then).
     """
-    parcel = parse_parcel(data, filename)
-    key = parcel_key(parcel)
-    stored_parcel = store.find(key) or store.add(
-        key, parcel.name, parcel.geometry, parcel.utm_epsg, parcel.area_ha, parcel.repaired
-    )
-    if on_parcel:
-        on_parcel(stored_parcel.id)
-    known = store.load(stored_parcel.id)
+    stored_parcel = store.get(parcel_id)
+    if stored_parcel is None:
+        raise LookupError(f"There is no stored parcel {parcel_id}.")
+    known = store.load(parcel_id)
     history = history_of(
-        parcel,
+        as_parcel(stored_parcel),
         end=today,
         fetch=fetch,
         fetch_composites=fetch_composites,
@@ -92,13 +98,14 @@ def analyze_parcel(
         model_version=model_version,
         valleys=valleys,
         stored=known,
+        on_progress=on_progress,
     )
     observations = history.daily.observations
     if known.observed_through is not None:
         observations = observations[observations.index.date > known.observed_through]
     through = max(today, known.observed_through) if known.observed_through else today
-    store.save(stored_parcel.id, observations, through, history.campaign_results)
-    return StoredAnalysis(stored_parcel.id, history)
+    store.save(parcel_id, observations, through, history.campaign_results)
+    return StoredAnalysis(parcel_id, history)
 
 
 def reopen_parcel(

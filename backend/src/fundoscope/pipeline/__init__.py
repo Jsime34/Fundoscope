@@ -4,11 +4,13 @@ Combines the pure domain modules with the adapters (db, sentinel): e.g. "analyze
 check the DB cache, fetch missing Sentinel-2 dates, compute campaigns, classify, flag, store.
 Used by both the CLI and the API worker so the logic lives in one place. Weeks 3-10.
 
-Submodules: `parcel_history` (file -> campaign table; no database yet), `training_data`
-(labels -> training pixels, within the quota), `train_model` (training pixels -> saved crop
-model and season-to-date models, model card, and cross-validation report), `valley_refresh`
-(the valley's new composites -> hectares per crop class, FR-14), `neighbors` (a parcel
-against the farmland around it, from a counted valley's saved data, FR-08).
+Submodules: `parcel_history` (file or stored data -> campaign table), `parcel_store` (store,
+update, and reopen parcels, FR-02), `jobs` (analyses as background jobs, FR-13),
+`training_data` (labels -> training pixels, within the quota), `train_model` (training
+pixels -> saved crop model and season-to-date models, model card, and cross-validation
+report), `valley_refresh` (the valley's new composites -> hectares per crop class, FR-14),
+`neighbors` (a parcel against the farmland around it, from a counted valley's saved data,
+FR-08).
 """
 
 from fundoscope.pipeline.parcel_history import ParcelHistory, parcel_history

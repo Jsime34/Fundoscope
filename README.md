@@ -55,10 +55,13 @@ Requirements: [uv](https://docs.astral.sh/uv/), Node.js 20.19+ or 22.12+, Docker
    uv run lint-imports
    ```
    The `db` tests create their own `fundoscope_test` database on the same server; without a running database they are skipped. `uv run fundoscope db tables` lists the tables with their rows and spatial indexes.
-4. Run the API (http://localhost:8020/docs):
+4. Run the API (http://localhost:8020/docs); it also runs the background worker that
+   analyzes parcels:
    ```
    uv run uvicorn fundoscope.api.main:app --reload --port 8020
    ```
+   With `--reload`, saving a backend file restarts the server, and an analysis running at
+   that moment is marked failed (start it again: it resumes from what is stored).
 5. In a second terminal, install and run the web app (http://localhost:5180; it forwards `/api` to the API on port 8020):
    ```
    cd frontend
@@ -70,7 +73,9 @@ Requirements: [uv](https://docs.astral.sh/uv/), Node.js 20.19+ or 22.12+, Docker
 
 ### Web app
 
-With the database, the API, and the web app running (setup steps 2, 4, and 5), open http://localhost:5180 and drop a KML, KMZ, or GeoJSON parcel. The first run downloads the parcel's history from Copernicus (about a minute and a half for a small parcel) and stores the parcel, its daily statistics, and its campaign results in PostGIS. Dropping the same outline again (in any file format) downloads only the dates since the last analysis, and a stored parcel can be reopened from the list on the start page with no satellite request at all. The data survive restarting the whole stack. The page shows the parcel on satellite imagery, the NDVI and NDWI curves since 2018, and the campaign table with the % of the area actively farmed. For a parcel inside the Pampa de Majes (once the valley is counted, below), it also compares the current campaign and the two before it with the farmland 50 m to 2 km around the parcel: each campaign's mean NDVI gets a band among its neighbors (below p10 to above p90), below p10 is flagged "underperforming", and the ring can be shown on the map. The comparison reads the valley's saved composites, so it costs nothing; outside the Pampa the page says it is only available there.
+With the database, the API, and the web app running (setup steps 2, 4, and 5), open http://localhost:5180 and drop a KML, KMZ, or GeoJSON parcel. The analysis runs on the server as a background job, and the page shows its progress. The first run downloads the parcel's history from Copernicus (about a minute and a half for a small parcel) and stores the parcel, its daily statistics, and its campaign results in PostGIS. Dropping the same outline again (in any file format) downloads only the dates since the last analysis, and a stored parcel can be reopened from the list on the start page with no satellite request at all. The data survive restarting the whole stack. The page shows the parcel on satellite imagery, the NDVI and NDWI curves since 2018, and the campaign table with the % of the area actively farmed. For a parcel inside the Pampa de Majes (once the valley is counted, below), it also compares the current campaign and the two before it with the farmland 50 m to 2 km around the parcel: each campaign's mean NDVI gets a band among its neighbors (below p10 to above p90), below p10 is flagged "underperforming", and the ring can be shown on the map. The comparison reads the valley's saved composites, so it costs nothing; outside the Pampa the page says it is only available there.
+
+The same steps work through the API (try them at http://localhost:8020/docs): `POST /api/parcels` stores a parcel file and returns its id (422 with the reason for an unusable file, 413 over 5 MB); `POST /api/parcels/{id}/analyses` queues an analysis and answers at once with a job; `GET /api/jobs/{id}` shows the job going from `queued` to `running` (progress 0 to 100, with what it is doing) to `done` or `failed` (with the reason in plain language, e.g. when Copernicus is down); and `GET /api/parcels/{id}/history` returns the report, whose cost adds up all the parcel's analyses. The worker runs one analysis at a time inside the API process.
 
 The valley crop monitor is at http://localhost:5180/valle/majes, in Spanish and made for a phone. It shows the latest count saved by `fundoscope valley refresh majes` (below): the crop map over satellite imagery (the farmland, and one crop at a time: tap a crop in the list), and the hectares of each crop this campaign against the previous campaign at the same date, with the change and the corrected 95 % range. It reads `data/valley/majes/latest.json` through `GET /api/valleys/majes`; nothing on the page calls Copernicus.
 

@@ -88,8 +88,11 @@ class JobRow(Base):
         UUID(as_uuid=True), ForeignKey("parcels.id", ondelete="CASCADE"), index=True
     )
     kind: Mapped[str] = mapped_column(String(20))  # "analyze" | "valley_refresh"
-    status: Mapped[str] = mapped_column(String(10), default="queued")  # queued|running|done|failed
+    status: Mapped[str] = mapped_column(  # queued|running|done|failed
+        String(10), default="queued", index=True
+    )
     progress: Mapped[int] = mapped_column(Integer, default=0)  # 0-100
+    step: Mapped[str | None] = mapped_column(Text)  # what it is doing now (migration 0002)
     error: Mapped[str | None] = mapped_column(Text)
     processing_units: Mapped[float] = mapped_column(Float, default=0.0)
     credits: Mapped[float] = mapped_column(Float, default=0.0)
