@@ -1,0 +1,135 @@
+"""Analyze and reopen stored parcels (FR-02).
+
+A parcel is stored the first time it is analyzed, keyed by its outline: the same outline
+uploaded again, in any file format, is the same parcel. Analyzing it again downloads only
+the dates after the last stored one (and the composites that aren't stored yet); reopening
+it rebuilds the report from the store alone, with no satellite request.
+"""
+
+import hashlib
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import date
+from pathlib import Path
+from uuid import UUID
+
+import shapely
+
+from fundoscope.db.records import ParcelStore, StoredParcel
+from fundoscope.ingest import Parcel, parse_parcel, to_utm
+from fundoscope.ml import CropModel
+from fundoscope.pipeline.parcel_history import (
+    CompositeFetcher,
+    Fetcher,
+    ParcelHistory,
+    history_of,
+)
+
+KEY_PRECISION_DEG = 1e-7  # about 1 cm: rounding noise from file formats doesn't matter
+
+
+@dataclass(frozen=True)
+class StoredAnalysis:
+    """A parcel's history and where it is stored.
+
+    Attributes:
+        parcel_id: the parcel's id in the store.
+        history: the history (its costs are those of this run only).
+    """
+
+    parcel_id: UUID
+    history: ParcelHistory
+
+    @property
+    def downloaded(self) -> bool:
+        """Whether this run made any satellite request."""
+        history = self.history
+        return bool(history.daily.requests or history.credits or history.active_area_failures)
+
+
+def parcel_key(parcel: Parcel) -> str:
+    """A hash of the parcel's outline (WGS84, rounded to about 1 cm, normalized)."""
+    shape = shapely.normalize(shapely.set_precision(parcel.geometry, KEY_PRECISION_DEG))
+    return hashlib.sha256(shapely.to_wkb(shape)).hexdigest()
+
+
+def analyze_parcel(
+    data: bytes,
+    filename: str,
+    store: ParcelStore,
+    *,
+    today: date,
+    fetch: Fetcher,
+    fetch_composites: CompositeFetcher | None = None,
+    model: CropModel | None = None,
+    model_version: str | None = None,
+    valleys: Path | None = None,
+    on_parcel: Callable[[UUID], None] | None = None,
+) -> StoredAnalysis:
+    """Store the parcel if it is new, bring its history up to `today`, and save it.
+
+    `on_parcel` is called with the parcel's id as soon as it is stored, before downloading.
+
+    Raises:
+        ingest.ParcelError: the file isn't a usable parcel (nothing is stored then).
+        sentinel.SentinelError: the daily statistics could not be downloaded (nothing new
+            is saved then).
+    """
+    parcel = parse_parcel(data, filename)
+    key = parcel_key(parcel)
+    stored_parcel = store.find(key) or store.add(
+        key, parcel.name, parcel.geometry, parcel.utm_epsg, parcel.area_ha, parcel.repaired
+    )
+    if on_parcel:
+        on_parcel(stored_parcel.id)
+    known = store.load(stored_parcel.id)
+    history = history_of(
+        parcel,
+        end=today,
+        fetch=fetch,
+        fetch_composites=fetch_composites,
+        model=model,
+        model_version=model_version,
+        valleys=valleys,
+        stored=known,
+    )
+    observations = history.daily.observations
+    if known.observed_through is not None:
+        observations = observations[observations.index.date > known.observed_through]
+    through = max(today, known.observed_through) if known.observed_through else today
+    store.save(stored_parcel.id, observations, through, history.campaign_results)
+    return StoredAnalysis(stored_parcel.id, history)
+
+
+def reopen_parcel(
+    parcel_id: UUID, store: ParcelStore, valleys: Path | None = None
+) -> StoredAnalysis | None:
+    """A stored parcel's history, rebuilt from the store with no satellite request.
+
+    Returns:
+        None if there is no such parcel, or it was never analyzed.
+    """
+    stored_parcel = store.get(parcel_id)
+    if stored_parcel is None or stored_parcel.observed_through is None:
+        return None
+    history = history_of(
+        as_parcel(stored_parcel),
+        end=stored_parcel.observed_through,
+        fetch=None,
+        fetch_composites=None,
+        valleys=valleys,
+        stored=store.load(parcel_id),
+    )
+    return StoredAnalysis(parcel_id, history)
+
+
+def as_parcel(stored: StoredParcel) -> Parcel:
+    """The validated parcel of a stored one."""
+    return Parcel(
+        name=stored.name,
+        geometry=stored.geometry,
+        utm_epsg=stored.utm_epsg,
+        geometry_utm=to_utm(stored.geometry, stored.utm_epsg),
+        area_ha=stored.area_ha,
+        repaired=stored.repaired,
+    )

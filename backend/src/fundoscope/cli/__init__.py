@@ -2,7 +2,8 @@
 
 Submodules: `checks` (setup checks), `history` (a parcel's history), `plots` (PNG charts),
 `labels` (checks the labeled parcels and downloads their training pixels), `model` (trains
-the crop model), `valley` (counts the crop hectares of a valley).
+the crop model), `valley` (counts the crop hectares of a valley), `db` (the PostGIS
+database).
 """
 
 import argparse
@@ -10,6 +11,7 @@ from datetime import date
 from pathlib import Path
 
 from fundoscope.cli.checks import check_cdse, check_db
+from fundoscope.cli.db import run_db_tables, run_db_upgrade
 from fundoscope.cli.history import run_history
 from fundoscope.cli.labels import run_labels_check, run_labels_extract
 from fundoscope.cli.model import run_model_train
@@ -122,11 +124,18 @@ def main(argv: list[str] | None = None) -> int:
         "--dry-run", action="store_true", help="only show what would be downloaded and counted"
     )
 
+    db = sub.add_parser("db", help="the PostGIS database")
+    db_sub = db.add_subparsers(dest="db_command", required=True)
+    db_sub.add_parser("upgrade", help="create or update the tables")
+    db_sub.add_parser("tables", help="list the tables with their rows and spatial indexes")
+
     args = parser.parse_args(argv)
     if args.command == "check-db":
         return check_db()
     if args.command == "check-cdse":
         return check_cdse()
+    if args.command == "db":
+        return run_db_upgrade() if args.db_command == "upgrade" else run_db_tables()
     if args.command == "labels" and args.labels_command == "extract":
         return run_labels_extract(args.file, args.used_credits, args.cap, dry_run=args.dry_run)
     if args.command == "labels":

@@ -1,4 +1,4 @@
-"""POST /api/history with fake downloaders, a temporary cache folder, and a fixed date."""
+"""The parcel history API with fake downloaders, an in-memory parcel store, and a fixed date."""
 
 import os
 from dataclasses import replace
@@ -9,11 +9,13 @@ import joblib
 import pytest
 from fastapi.testclient import TestClient
 from sklearn.dummy import DummyClassifier
+from sqlalchemy.exc import OperationalError
 
 from fundoscope.analysis import Flag
 from fundoscope.api import history as history_api
 from fundoscope.api.main import app
 from fundoscope.api.schemas import history_out
+from fundoscope.db import MemoryParcelStore
 from fundoscope.pipeline import MODEL_FILE, parcel_history
 from fundoscope.sentinel import SentinelError
 
@@ -21,12 +23,18 @@ TODAY = date(2024, 7, 31)  # data from Aug 2018 to here: campaigns 2018/19 ... 2
 
 
 @pytest.fixture
-def client(tmp_path, fake_fetch, fake_composites):
+def store():
+    return MemoryParcelStore()
+
+
+@pytest.fixture
+def client(tmp_path, fake_fetch, fake_composites, store):
     app.dependency_overrides = {
         history_api.daily_fetcher: lambda: fake_fetch,
         history_api.composites_fetcher: lambda: fake_composites,
         history_api.crop_model: lambda: None,
-        history_api.cache_folder: lambda: tmp_path / "cache",
+        history_api.model_version: lambda: None,
+        history_api.parcel_store: lambda: store,
         history_api.today: lambda: TODAY,
         history_api.valleys_folder: lambda: tmp_path / "valleys",
     }
@@ -67,19 +75,76 @@ def test_upload_returns_the_full_history(client, parcel_geojson):
     assert "NaN" not in response.text  # missing values travel as null, which JSON allows
 
 
-def test_the_same_file_on_the_same_day_comes_from_the_cache(client, parcel_geojson, fake_fetch):
-    upload(client, parcel_geojson)
+def test_the_same_parcel_on_the_same_day_downloads_nothing(
+    client, parcel_geojson, fake_fetch, fake_composites
+):
+    first = upload(client, parcel_geojson).json()
     second = upload(client, parcel_geojson)
+
     assert second.status_code == 200
-    assert second.json()["summary"]["cached"] is True
-    assert len(fake_fetch.calls) == 1  # nothing downloaded the second time
+    body = second.json()
+    assert body["summary"]["cached"] is True
+    assert body["summary"]["processing_units"] == 0 and body["summary"]["credits"] == 0
+    assert body["parcel"]["id"] == first["parcel"]["id"]
+    assert body["campaigns"] == first["campaigns"]
+    assert len(fake_fetch.calls) == 1 and len(fake_composites.calls) == 6
 
 
-def test_a_new_day_computes_again(client, parcel_geojson, fake_fetch):
+def test_a_new_day_downloads_only_the_new_dates(
+    client, parcel_geojson, fake_fetch, fake_composites
+):
     upload(client, parcel_geojson)
-    app.dependency_overrides[history_api.today] = lambda: date(2024, 8, 1)
-    assert upload(client, parcel_geojson).json()["summary"]["cached"] is False
-    assert len(fake_fetch.calls) == 2
+    app.dependency_overrides[history_api.today] = lambda: date(2024, 8, 20)
+
+    body = upload(client, parcel_geojson).json()
+
+    assert body["summary"]["cached"] is False
+    _, _, start, end = fake_fetch.calls[1]
+    assert (start, end) == (date(2024, 8, 1), date(2024, 8, 20))
+    # Only the new campaign's composites: the finished ones are stored.
+    assert [call[0] for call in fake_composites.calls[6:]] == [date(2024, 8, 1)]
+    assert body["campaigns"][-1]["campaign"] == "2024/25"
+
+
+def test_a_stored_report_is_reopened_without_downloading(client, parcel_geojson, fake_fetch):
+    first = upload(client, parcel_geojson).json()
+
+    response = client.get(f"/api/parcels/{first['parcel']['id']}/history")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["summary"]["cached"] is True and body["summary"]["processing_units"] == 0
+    assert body["campaigns"] == first["campaigns"]
+    assert body["observations"] == first["observations"]
+    assert len(fake_fetch.calls) == 1
+
+
+def test_stored_parcels_are_listed(client, parcel_geojson):
+    first = upload(client, parcel_geojson).json()
+
+    listed = client.get("/api/parcels").json()
+
+    assert [p["id"] for p in listed] == [first["parcel"]["id"]]
+    assert listed[0]["name"] == "Lote demo" and listed[0]["area_ha"] == 9.0
+    assert listed[0]["observed_through"] == "2024-07-31"
+
+
+def test_an_unknown_parcel_is_a_404(client):
+    response = client.get("/api/parcels/00000000-0000-0000-0000-000000000000/history")
+
+    assert response.status_code == 404
+
+
+def test_a_database_that_is_down_is_a_503(client):
+    def down():
+        raise OperationalError("SELECT 1", {}, Exception("connection refused"))
+
+    app.dependency_overrides[history_api.parcel_store] = down
+
+    response = client.get("/api/parcels")
+
+    assert response.status_code == 503
+    assert "database isn't available" in response.json()["detail"]
 
 
 def test_an_invalid_file_is_a_422_with_the_reason(client, fake_fetch):
@@ -182,3 +247,12 @@ def test_a_parcel_inside_a_counted_valley_is_compared_with_its_neighbors(
     assert first["p10"] < first["p50"] < first["p90"]
     assert [b["campaign"] for b in neighbors["bands"]] == ["2024/25", "2025/26", "2026/27"]
     assert any(flag["kind"] == "underperforming" for flag in body["flags"])
+
+
+def test_the_model_version_is_the_model_file_time(monkeypatch, tmp_path):
+    from fundoscope.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "models_dir", tmp_path)
+    assert history_api.model_version() is None
+    (tmp_path / MODEL_FILE).write_bytes(b"model")
+    assert history_api.model_version().startswith(str(date.today().year))

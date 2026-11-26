@@ -11,6 +11,21 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    services:
+      db:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: fundoscope
+          POSTGRES_PASSWORD: fundoscope
+          POSTGRES_DB: fundoscope
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fundoscope -d fundoscope"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://fundoscope:fundoscope@localhost:5432/fundoscope
+      FUNDOSCOPE_REQUIRE_DB: "1"  # the database tests must run here, not be skipped
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6

@@ -239,3 +239,34 @@ def test_the_history_carries_the_flags_of_its_campaigns(
 
     assert len(history.campaigns) == 5
     assert history.flags == campaign_flags(history.campaigns) == []  # a steady parcel
+
+
+def test_without_downloads_the_stored_campaigns_are_used_as_they_are(parcel_geojson, fake_fetch):
+    from fundoscope.db import StoredCampaign, StoredHistory
+    from fundoscope.pipeline.parcel_history import history_of
+
+    first = parcel_history(
+        parcel_geojson, "lote.geojson", date(2022, 8, 1), date(2024, 7, 31), fetch=fake_fetch
+    )
+    old = StoredCampaign(0.5, "grape", 0.8, date(2024, 3, 1), "v0")  # partial and from an old model
+    stored = StoredHistory(first.daily.observations, date(2024, 7, 31), {"2023/24": old})
+
+    history = history_of(
+        first.parcel, date(2022, 8, 1), date(2024, 7, 31), fetch=None, stored=stored
+    )
+
+    assert history.campaigns.loc["2023/24", "crop"] == "grape"
+    assert history.campaigns.loc["2023/24", "active_area"] == 0.5
+    assert history.campaign_results == {"2023/24": old}
+
+
+def test_nothing_stored_and_nothing_downloaded_is_an_empty_history(parcel_geojson):
+    from fundoscope.ingest import parse_parcel
+    from fundoscope.pipeline.parcel_history import history_of
+
+    history = history_of(
+        parse_parcel(parcel_geojson, "lote.geojson"), end=date(2024, 7, 31), fetch=None
+    )
+
+    assert history.daily.observations.empty and history.campaigns.empty
+    assert history.daily.processing_units == 0

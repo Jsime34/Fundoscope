@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 
-import { fetchHistory } from "./api";
+import { fetchHistory, fetchStoredHistory } from "./api";
 import CampaignTable from "./components/CampaignTable";
 import FlagsPanel from "./components/FlagsPanel";
 import NeighborsPanel from "./components/NeighborsPanel";
 import NdviChart from "./components/NdviChart";
 import ParcelMap from "./components/ParcelMap";
+import StoredParcels from "./components/StoredParcels";
 import SummaryCard from "./components/SummaryCard";
 import UploadPanel from "./components/UploadPanel";
 
@@ -47,18 +48,21 @@ export default function App() {
   const [fileName, setFileName] = useState("");
   const seconds = useElapsedSeconds(state === "loading");
 
-  async function analyze(file) {
-    setFileName(file.name);
+  async function load(name, request) {
+    setFileName(name);
     setState("loading");
     setError("");
     try {
-      setResult(await fetchHistory(file));
+      setResult(await request());
       setState("done");
     } catch (err) {
       setError(err.message);
       setState("error");
     }
   }
+
+  const analyze = (file) => load(file.name, () => fetchHistory(file));
+  const reopen = (parcel) => load(parcel.name ?? "the parcel", () => fetchStoredHistory(parcel.id));
 
   const busy = state === "loading";
   const status = <Status state={state} fileName={fileName} seconds={seconds} error={error} />;
@@ -80,6 +84,7 @@ export default function App() {
           </p>
           <UploadPanel onFile={analyze} busy={busy} large />
           {status}
+          <StoredParcels onOpen={reopen} busy={busy} />
         </section>
       ) : (
         <main className="grid">

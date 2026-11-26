@@ -24,3 +24,17 @@ export async function fetchValley(slug) {
   if (!response.ok) throw new Error(`el servidor respondió ${response.status}.`);
   return response.json();
 }
+
+// Parcels stored in the database, newest first (FR-02).
+export async function fetchStoredParcels() {
+  const response = await fetch("/api/parcels");
+  if (!response.ok) throw new Error(`The server answered ${response.status}.`);
+  return response.json();
+}
+
+// A stored report, rebuilt from the database with no satellite request.
+export async function fetchStoredHistory(id) {
+  const response = await fetch(`/api/parcels/${encodeURIComponent(id)}/history`);
+  if (!response.ok) throw new Error(`The server answered ${response.status}.`);
+  return response.json();
+}

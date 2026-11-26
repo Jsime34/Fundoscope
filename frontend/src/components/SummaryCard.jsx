@@ -25,7 +25,7 @@ export default function SummaryCard({ result }) {
         <dt>Cost</dt>
         <dd>
           {summary.processing_units.toFixed(1)} processing units · {summary.credits.toFixed(0)} credits{" "}
-          {summary.cached && <span className="badge cached">from cache</span>}
+          {summary.cached && <span className="badge cached">stored: nothing new downloaded</span>}
         </dd>
       </dl>
       {parcel.repaired && (

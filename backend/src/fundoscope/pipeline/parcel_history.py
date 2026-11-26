@@ -18,7 +18,7 @@ There is no database yet, so every run downloads again (about 20 processing unit
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -27,6 +27,7 @@ from shapely.geometry.base import BaseGeometry
 
 from fundoscope.analysis import Flag, campaign_flags
 from fundoscope.analysis.neighbors import underperforming_flags
+from fundoscope.db.records import StoredCampaign, StoredHistory, empty_observations
 from fundoscope.ingest import Parcel, parse_parcel
 from fundoscope.ml import (
     INTERIOR_BUFFER_M,
@@ -81,6 +82,8 @@ class ParcelHistory:
             campaign order (see `analysis.flags`; abandonment and crop change need the
             composites, underperforming needs the neighbor comparison).
         neighbors: the neighbor comparison (None when it wasn't asked for).
+        campaign_results: what the composites gave for each campaign, reused or computed in
+            this run (failed requests are left out, so they are tried again), to store.
     """
 
     parcel: Parcel
@@ -91,6 +94,7 @@ class ParcelHistory:
     active_area_failures: int = 0
     flags: list[Flag] = field(default_factory=list)
     neighbors: NeighborReport | None = None
+    campaign_results: dict[str, StoredCampaign] = field(default_factory=dict)
 
 
 def parcel_history(
@@ -116,38 +120,100 @@ def parcel_history(
         ingest.ParcelError: the file isn't a usable parcel (nothing is downloaded then).
         sentinel.SentinelError: the daily statistics could not be downloaded.
     """
-    parcel = parse_parcel(data, filename)
+    return history_of(
+        parse_parcel(data, filename),
+        start,
+        end,
+        fetch=fetch,
+        fetch_composites=fetch_composites,
+        model=model,
+        valleys=valleys,
+    )
+
+
+def history_of(
+    parcel: Parcel,
+    start: date = ARCHIVE_START,
+    end: date | None = None,
+    *,
+    fetch: Fetcher | None = fetch_daily_stats,
+    fetch_composites: CompositeFetcher | None = None,
+    model: CropModel | None = None,
+    model_version: str | None = None,
+    valleys: Path | None = None,
+    stored: StoredHistory | None = None,
+) -> ParcelHistory:
+    """The history of a validated parcel, starting from what is `stored` about it (FR-02).
+
+    Only the dates after the stored ones are downloaded, and only the campaigns whose
+    composites aren't stored are requested: a finished campaign is computed once, the one in
+    progress once a day (and again if the crop model changed: `model_version`). With
+    `fetch=None` and `fetch_composites=None`, nothing is downloaded: the history is rebuilt
+    from the stored data alone.
+
+    Raises:
+        sentinel.SentinelError: the daily statistics could not be downloaded.
+    """
     end = end or date.today()
-    labels = campaigns_between(start, end) if fetch_composites else []
+    stored = stored or StoredHistory(empty_observations())
+    known_until = stored.observed_through
+    fetch_from = max(start, known_until + timedelta(days=1)) if known_until else start
+    labels = campaigns_between(start, end)
+    reuse = {
+        label: stored.campaigns[label]
+        for label in labels
+        if label in stored.campaigns
+        and (
+            fetch_composites is None
+            or _reusable(stored.campaigns[label], label, end, model, model_version)
+        )
+    }
+    to_compute = [label for label in labels if label not in reuse] if fetch_composites else []
 
     with ThreadPoolExecutor(max_workers=1 + COMPOSITE_WORKERS) as pool:
-        daily_job = pool.submit(fetch, parcel.geometry_utm, parcel.utm_epsg, start, end)
+        daily_job = (
+            pool.submit(fetch, parcel.geometry_utm, parcel.utm_epsg, fetch_from, end)
+            if fetch is not None and fetch_from <= end
+            else None
+        )
         area_jobs = {
             label: pool.submit(
                 _campaign_composites, fetch_composites, parcel, label, start, end, model
             )
-            for label in labels
+            for label in to_compute
         }
-        daily = daily_job.result()
-        areas = {label: job.result() for label, job in area_jobs.items()}
+        new = daily_job.result() if daily_job else DailyStats(empty_observations(), 0.0, 0, 0)
+        fresh = {label: job.result() for label, job in area_jobs.items()}
 
+    observations = _merge(stored.observations, new.observations, start, end)
+    daily = DailyStats(observations, new.processing_units, new.requests, new.failed_intervals)
+    areas = {label: _from_stored(record) for label, record in reuse.items()} | fresh
     clean = clean_series(daily.observations)
     campaigns = campaign_metrics(clean)
     neighbors = neighbor_report(parcel, valleys) if valleys is not None else None
     no_value = _CampaignResult(float("nan"), 0.0, failed=False)
     results = [areas.get(label, no_value) for label in campaigns.index]
     campaigns["active_area"] = [result.active_area for result in results]
-    campaigns["crop"] = [result.crop.crop_class if result.crop else None for result in results]
-    campaigns["crop_confidence"] = [
-        result.crop.confidence if result.crop else float("nan") for result in results
-    ]
+    campaigns["crop"] = [result.crop for result in results]
+    campaigns["crop_confidence"] = [result.crop_confidence for result in results]
+    computed = {
+        label: StoredCampaign(
+            result.active_area,
+            result.crop,
+            result.crop_confidence,
+            min(campaign_bounds(label)[1], end),
+            model_version if model is not None else None,
+        )
+        for label, result in fresh.items()
+        if not result.failed
+    }
     return ParcelHistory(
         parcel=parcel,
         daily=daily,
         clean=clean,
         campaigns=campaigns,
-        credits=sum(area.credits for area in areas.values()),
-        active_area_failures=sum(area.failed for area in areas.values()),
+        credits=sum(area.credits for area in fresh.values()),
+        active_area_failures=sum(area.failed for area in fresh.values()),
         flags=sorted(
             [
                 *campaign_flags(campaigns),
@@ -156,7 +222,34 @@ def parcel_history(
             key=lambda flag: flag.campaign,
         ),
         neighbors=neighbors,
+        campaign_results=reuse | computed,
     )
+
+
+def _reusable(
+    record: StoredCampaign,
+    label: str,
+    end: date,
+    model: CropModel | None,
+    model_version: str | None,
+) -> bool:
+    """A stored campaign covers the period (whole, or up to `end`) with today's crop model."""
+    covers = record.computed_through >= min(campaign_bounds(label)[1], end)
+    return covers and (model is None or record.crop_model == model_version)
+
+
+def _from_stored(record: StoredCampaign) -> "_CampaignResult":
+    return _CampaignResult(record.active_area, 0.0, False, record.crop, record.crop_confidence)
+
+
+def _merge(old: pd.DataFrame, new: pd.DataFrame, start: date, end: date) -> pd.DataFrame:
+    """The stored and the new daily statistics, one row per date, within [start, end]."""
+    frames = [frame for frame in (old, new) if len(frame)]
+    if not frames:
+        return empty_observations()
+    merged = pd.concat(frames) if len(frames) > 1 else frames[0]
+    merged = merged[~merged.index.duplicated(keep="last")].sort_index()
+    return merged[(merged.index >= pd.Timestamp(start)) & (merged.index <= pd.Timestamp(end))]
 
 
 def interior_stack(
@@ -178,7 +271,8 @@ class _CampaignResult:
     active_area: float  # 0..1, NaN if unknown
     credits: float
     failed: bool  # True if openEO could not deliver the composites (vs. simply no clear pixel)
-    crop: CropPrediction | None = None
+    crop: str | None = None  # the predicted class
+    crop_confidence: float = float("nan")
 
 
 def _campaign_composites(
@@ -207,7 +301,13 @@ def _campaign_composites(
             area = active_fraction(peak)
         except ValueError:  # not a single clear pixel in the campaign: unknown, not a failure
             area = float("nan")
-        return _CampaignResult(area, composites.credits, failed=False, crop=crop)
+        return _CampaignResult(
+            area,
+            composites.credits,
+            failed=False,
+            crop=crop.crop_class if crop else None,
+            crop_confidence=crop.confidence if crop else float("nan"),
+        )
     return _CampaignResult(float("nan"), 0.0, failed=True)
 
 

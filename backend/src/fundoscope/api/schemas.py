@@ -2,6 +2,7 @@
 
 import math
 from datetime import date
+from uuid import UUID
 
 from pydantic import BaseModel
 from shapely.geometry import mapping
@@ -12,6 +13,7 @@ from fundoscope.pipeline.neighbors import NeighborReport
 
 
 class ParcelOut(BaseModel):
+    id: str | None = None  # in the store (FR-02): reopen it with GET /api/parcels/{id}/history
     name: str | None
     area_ha: float
     utm_epsg: int
@@ -30,7 +32,7 @@ class SummaryOut(BaseModel):
     processing_units: float
     credits: float
     active_area_failures: int
-    cached: bool = False
+    cached: bool = False  # True: nothing had to be downloaded (all from the store)
 
 
 class CampaignOut(BaseModel):
@@ -97,12 +99,15 @@ class HistoryOut(BaseModel):
     observations: list[ObservationPoint]  # clear satellite dates actually used
 
 
-def history_out(history: ParcelHistory) -> HistoryOut:
+def history_out(
+    history: ParcelHistory, parcel_id: UUID | None = None, cached: bool = False
+) -> HistoryOut:
     """Convert a pipeline result into the API's JSON shape (NaN becomes null)."""
     parcel, daily, clean = history.parcel, history.daily, history.clean
     obs = daily.observations
     return HistoryOut(
         parcel=ParcelOut(
+            id=str(parcel_id) if parcel_id else None,
             name=parcel.name,
             area_ha=round(parcel.area_ha, 2),
             utm_epsg=parcel.utm_epsg,
@@ -120,6 +125,7 @@ def history_out(history: ParcelHistory) -> HistoryOut:
             processing_units=round(daily.processing_units, 2),
             credits=round(history.credits, 2),
             active_area_failures=history.active_area_failures,
+            cached=cached,
         ),
         campaigns=[
             CampaignOut(

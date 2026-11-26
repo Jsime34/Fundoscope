@@ -77,6 +77,20 @@ h1, h2, h3, p { margin: 0; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Stored parcels (FR-02) */
+.stored { margin-top: 28px; text-align: left; }
+.stored h2 { font-size: 14px; color: var(--ink-2); font-weight: 600; margin-bottom: 8px; }
+.stored ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.stored button {
+  width: 100%; display: flex; justify-content: space-between; gap: 12px; align-items: baseline;
+  font: inherit; text-align: left; background: var(--surface); border: 1px solid var(--hairline);
+  border-radius: 8px; padding: 10px 12px; cursor: pointer;
+}
+.stored button:hover { border-color: var(--brand); background: var(--brand-soft); }
+.stored button:disabled { cursor: progress; opacity: 0.7; }
+.stored-name { font-weight: 600; font-size: 14px; }
+.stored-meta { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+
 /* Summary */
 .facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13.5px; }
 .facts dt { color: var(--muted); }
