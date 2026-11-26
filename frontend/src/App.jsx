@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { fetchStoredHistory, startAnalysis, uploadParcel, waitForJob } from "./api";
 import CampaignTable from "./components/CampaignTable";
+import CropTimeline from "./components/CropTimeline";
 import FlagsPanel from "./components/FlagsPanel";
 import NeighborsPanel from "./components/NeighborsPanel";
 import NdviChart from "./components/NdviChart";
@@ -143,6 +144,11 @@ export default function App() {
           </div>
 
           <div className="card">
+            <h2>Crop by campaign</h2>
+            <CropTimeline campaigns={result.campaigns} flags={result.flags ?? []} />
+          </div>
+
+          <div className="card">
             <div className="chart-head">
               <h2>Vegetation (NDVI) and canopy water (NDWI) since 2018</h2>
               <span className="hint">Shaded bands: agricultural campaigns, August to July</span>
@@ -159,14 +165,20 @@ export default function App() {
             <CampaignTable campaigns={result.campaigns} />
           </div>
 
-          <div className="card">
-            <h2>Compared with the farmland around it</h2>
-            <NeighborsPanel neighbors={result.neighbors ?? null} />
-          </div>
+          <div className="grid pair">
+            <div className="card" id="flags">
+              <h2>Flags</h2>
+              <FlagsPanel
+                flags={result.flags ?? []}
+                campaigns={result.campaigns}
+                observations={result.observations}
+              />
+            </div>
 
-          <div className="card">
-            <h2>Flags</h2>
-            <FlagsPanel flags={result.flags ?? []} />
+            <div className="card">
+              <h2>Compared with the farmland around it</h2>
+              <NeighborsPanel neighbors={result.neighbors ?? null} />
+            </div>
           </div>
         </main>
       )}

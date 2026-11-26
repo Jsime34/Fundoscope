@@ -1,14 +1,4 @@
-import { dash, fixed, percent } from "../format";
-
-// The predicted crop and how sure the model is (mean probability over the parcel's pixels).
-function Crop({ name, confidence }) {
-  if (!name) return dash;
-  return (
-    <span className="crop">
-      {name} <span className="confidence">{percent(confidence)}</span>
-    </span>
-  );
-}
+import { fixed, percent } from "../format";
 
 function ActiveArea({ value }) {
   if (value == null) return "—";
@@ -22,7 +12,7 @@ function ActiveArea({ value }) {
   );
 }
 
-// One row per agricultural campaign (August-July).
+// One row per agricultural campaign (August-July). The crops are in CropTimeline.
 export default function CampaignTable({ campaigns }) {
   return (
     <div className="table-wrap">
@@ -30,9 +20,6 @@ export default function CampaignTable({ campaigns }) {
         <thead>
           <tr>
             <th>Campaign</th>
-            <th title="Predicted by the crop model; the percentage is its confidence. In-progress campaigns have no crop yet.">
-              Crop
-            </th>
             <th>Peak NDVI</th>
             <th>Mean NDVI</th>
             <th>Mean NDWI</th>
@@ -47,9 +34,6 @@ export default function CampaignTable({ campaigns }) {
           {campaigns.map((c) => (
             <tr key={c.campaign}>
               <td>{c.campaign}</td>
-              <td>
-                <Crop name={c.crop} confidence={c.crop_confidence} />
-              </td>
               <td>{fixed(c.peak_ndvi)}</td>
               <td>{fixed(c.mean_ndvi)}</td>
               <td>{fixed(c.mean_ndwi)}</td>

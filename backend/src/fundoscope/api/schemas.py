@@ -11,6 +11,7 @@ from fundoscope.db import DONE, Job, StoredParcel
 from fundoscope.ingest import Parcel, zone_label
 from fundoscope.pipeline import ParcelHistory
 from fundoscope.pipeline.neighbors import NeighborReport
+from fundoscope.valley.render import class_color
 
 
 class ParcelOut(BaseModel):
@@ -47,6 +48,7 @@ class CampaignOut(BaseModel):
     active_area: float | None
     crop: str | None = None  # predicted model class; None for a campaign in progress
     crop_confidence: float | None = None  # 0..1
+    crop_color: str | None = None  # the crop's color on the valley map, so both pages agree
 
 
 class FlagOut(BaseModel):
@@ -186,6 +188,7 @@ def history_out(
                 active_area=_num(row["active_area"]),
                 crop=row["crop"] if isinstance(row["crop"], str) else None,
                 crop_confidence=_num(row["crop_confidence"]),
+                crop_color=class_color(row["crop"]) if isinstance(row["crop"], str) else None,
             )
             for label, row in history.campaigns.iterrows()
         ],

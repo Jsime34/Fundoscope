@@ -102,14 +102,23 @@ def save_month(path: Path, layer: xr.DataArray) -> None:
 def load_month(path: Path, bands: tuple[str, ...] = COMPOSITE_BANDS) -> xr.DataArray:
     """One saved month: (band, y, x) reflectance, NaN where no clear pixel was seen."""
     with np.load(path) as saved:
-        values = np.stack([saved[name] for name in bands])
         x, y = saved["x"], saved["y"]
-    reflectance = np.where(values == NO_VALUE, np.nan, values * REFLECTANCE_STEP)
     return xr.DataArray(
-        reflectance.astype(np.float32),
+        load_bands(path, bands),
         dims=("band", "y", "x"),
         coords={"band": list(bands), "y": y, "x": x},
     )
+
+
+def load_bands(path: Path, bands: tuple[str, ...]) -> NDArray[np.float32]:
+    """The bands of one saved month as a plain (band, y, x) array, like `load_month`'s values.
+
+    Faster when the coordinates aren't needed (e.g. the neighbor comparison, which reads many
+    months on each report).
+    """
+    with np.load(path) as saved:
+        values = np.stack([saved[name] for name in bands])
+    return np.where(values == NO_VALUE, np.nan, values * REFLECTANCE_STEP).astype(np.float32)
 
 
 def load_stack(tile_dir: Path, keys: list[MonthKey]) -> xr.DataArray:
@@ -123,7 +132,7 @@ def peak_ndvi(tile_dir: Path, keys: list[MonthKey]) -> NDArray[np.float64]:
     """Each pixel's highest monthly NDVI over the saved months `keys` (NaN if never clear)."""
     peak = None
     for key in keys:
-        red, nir = load_month(tile_dir / key.file_name, ("B04", "B08")).to_numpy()
+        red, nir = load_bands(tile_dir / key.file_name, ("B04", "B08"))
         value = ndvi(red, nir)
         peak = value if peak is None else np.fmax(peak, value)
     if peak is None:

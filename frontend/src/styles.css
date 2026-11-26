@@ -46,6 +46,8 @@ h1, h2, h3, p { margin: 0; }
 .grid.top { grid-template-columns: 360px 1fr; align-items: stretch; }
 @media (max-width: 900px) { .grid.top { grid-template-columns: 1fr; } }
 .stack { display: grid; gap: 16px; align-content: start; }
+.grid.pair { grid-template-columns: 1fr 1fr; align-items: start; }
+@media (max-width: 1100px) { .grid.pair { grid-template-columns: 1fr; } }
 
 /* Upload */
 .dropzone {
@@ -142,6 +144,25 @@ h1, h2, h3, p { margin: 0; }
   .neighbor-row { grid-template-columns: 1fr auto; grid-template-areas: "campaign values" "text text" "chart chart"; }
 }
 
+/* Crop by campaign (FR-06, FR-12) */
+.timeline {
+  list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+}
+.tile {
+  display: grid; gap: 3px; align-content: start; padding: 10px;
+  border: 1px solid var(--hairline); border-radius: 8px; background: var(--surface);
+}
+.tile.partial { border-style: dashed; border-color: #c3c2b7; }
+.tile.flagged { border-top: 3px solid var(--warn); padding-top: 8px; }
+.tile-campaign { color: var(--ink-2); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.tile-crop { display: flex; align-items: flex-start; gap: 6px; font-weight: 650; font-size: 13.5px; line-height: 1.25; }
+.tile-crop .swatch { flex: none; width: 10px; height: 10px; margin-top: 3px; border-radius: 3px; }
+.tile-confidence { color: var(--ink-2); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.tile-none { color: var(--muted); font-size: 12.5px; line-height: 1.35; }
+.tile-flags { color: var(--warn); font-size: 12px; line-height: 1.35; }
+.card .note { margin-top: 10px; }
+
 /* Chart */
 .chart-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
 .chart-tooltip {
@@ -168,8 +189,6 @@ tbody tr:hover { background: #f4f4f1; }
 .flag details { margin-top: 6px; }
 .flag summary { cursor: pointer; color: var(--ink-2); font-size: 12.5px; }
 .flag .facts { margin-top: 8px; font-size: 12.5px; }
-.crop { font-weight: 600; white-space: nowrap; }
-.crop .confidence { color: var(--muted); font-weight: 400; font-size: 12.5px; }
 .meter { display: inline-flex; align-items: center; gap: 8px; }
 .meter .track { display: block; width: 70px; height: 6px; background: var(--grid); border-radius: 4px; overflow: hidden; }
 .meter .fill { display: block; height: 100%; background: var(--brand); border-radius: 4px; }

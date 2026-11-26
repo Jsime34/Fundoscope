@@ -158,14 +158,15 @@ def test_with_a_model_each_campaign_has_its_crop(analyze, parcel_geojson, fake_c
     campaigns = response.json()["campaigns"]
     assert [c["crop"] for c in campaigns] == ["grape"] * 6
     assert all(0.7 < c["crop_confidence"] < 0.8 for c in campaigns)
+    assert {c["crop_color"] for c in campaigns} == {"#e87ba4"}  # grape on the valley map
 
 
 def test_without_a_model_the_crop_is_empty(analyze, parcel_geojson):
     _, response = analyze(parcel_geojson)
 
-    assert {(c["crop"], c["crop_confidence"]) for c in response.json()["campaigns"]} == {
-        (None, None)
-    }
+    assert {
+        (c["crop"], c["crop_confidence"], c["crop_color"]) for c in response.json()["campaigns"]
+    } == {(None, None, None)}
 
 
 def test_flags_are_part_of_the_answer(analyze, parcel_geojson, fake_fetch):

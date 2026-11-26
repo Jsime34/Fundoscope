@@ -8,6 +8,7 @@ the campaigns of the latest count: the current one so far and the two before it.
 """
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -32,7 +33,7 @@ from fundoscope.pipeline.valley_store import (
     COMPOSITES_DIR,
     LATEST_FILE,
     ValleyError,
-    load_month,
+    load_bands,
     load_valley,
 )
 from fundoscope.timeseries import ndvi
@@ -41,6 +42,7 @@ from fundoscope.valley.season import Count, MonthKey
 
 OUTSIDE = "The neighbor comparison is only available inside the pilot area (the Pampa de Majes)."
 TOO_FEW = "There are too few farmland pixels around the parcel to compare it with."
+READERS = 8  # composite files read at once (decompressing them releases the GIL)
 
 
 @dataclass(frozen=True)
@@ -117,9 +119,14 @@ def campaign_counts(run: dict[str, Any]) -> list[Count]:
 
 
 def window_ndvi(folder: Path, valley_: Valley, window: Tile, keys: list[MonthKey]) -> NDArray:
-    """Monthly NDVI (month, y, x) on the window's grid, read from the tiles it overlaps."""
+    """Monthly NDVI (month, y, x) on the window's grid, read from the tiles it overlaps.
+
+    The files are read in parallel: each holds a whole tile, so reading them one by one made a
+    stored report take seconds (FR-12 allows 3).
+    """
     out = np.full((len(keys), len(window.y), len(window.x)), np.nan)
     west, south, east, north = window.bounds
+    reads = []
     for tile in valley_.tiles:
         t_west, t_south, t_east, t_north = tile.bounds
         o_west, o_east = max(west, t_west), min(east, t_east)
@@ -132,8 +139,15 @@ def window_ndvi(folder: Path, valley_: Valley, window: Tile, keys: list[MonthKey
         cols = slice(_px(o_west - west), _px(o_east - west))
         for i, key in enumerate(keys):
             path = folder / COMPOSITES_DIR / tile.id / key.file_name
-            red, nir = load_month(path, ("B04", "B08")).to_numpy()
-            out[i, rows, cols] = ndvi(red[tile_rows, tile_cols], nir[tile_rows, tile_cols])
+            reads.append((path, (i, rows, cols), (tile_rows, tile_cols)))
+
+    def read(path: Path, into: tuple[int, slice, slice], part: tuple[slice, slice]) -> None:
+        red, nir = load_bands(path, ("B04", "B08"))
+        out[into] = ndvi(red[part], nir[part])  # each read fills its own part of `out`
+
+    with ThreadPoolExecutor(max_workers=READERS) as pool:
+        for future in [pool.submit(read, *args) for args in reads]:
+            future.result()  # raises a reading error, if any
     return out
 
 
