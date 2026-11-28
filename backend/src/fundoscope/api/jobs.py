@@ -15,7 +15,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from fundoscope.api.schemas import JobOut, job_out
-from fundoscope.api.valley import valleys_folder
+from fundoscope.api.valley import counted_valleys, valley_store, valleys_folder
 from fundoscope.config import get_settings
 from fundoscope.db import AutocommitParcelStore, JobStore, SqlJobStore
 from fundoscope.ml import CropModel
@@ -62,7 +62,8 @@ def make_worker() -> Worker:
 
 
 def analyze_with_copernicus(parcel_id: UUID, on_progress: Progress) -> StoredAnalysis:
-    """One parcel analysis with the real downloaders, the saved model, and PostGIS."""
+    """One parcel analysis with the real downloaders, the saved model, and PostGIS (which
+    also holds the valley counts for the neighbor comparison)."""
     return update_parcel(
         parcel_id,
         AutocommitParcelStore(),
@@ -71,7 +72,7 @@ def analyze_with_copernicus(parcel_id: UUID, on_progress: Progress) -> StoredAna
         fetch_composites=fetch_monthly_composites,
         model=crop_model(),
         model_version=model_version(),
-        valleys=valleys_folder(),
+        valleys=counted_valleys(valleys_folder(), valley_store()),
         on_progress=on_progress,
     )
 

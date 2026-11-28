@@ -1,7 +1,8 @@
 """`fundoscope valley refresh <slug>`: count the crop hectares of a valley (FR-14).
 
 The valley's area of interest is data/valley/<slug>/aoi.geojson. The first run downloads three
-campaigns of composites (about two hours); later runs download only what is new.
+campaigns of composites (about two hours); later runs download only what is new. Each count is
+saved in PostGIS, so the database must be running.
 """
 
 from collections.abc import Callable
@@ -9,7 +10,10 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy.exc import OperationalError
+
 from fundoscope.cli.model import default_models_dir
+from fundoscope.db import SqlValleyStore, StoredValleyRun, ValleyStore
 from fundoscope.ingest import ParcelError
 from fundoscope.pipeline.valley_refresh import (
     WORKERS,
@@ -21,7 +25,6 @@ from fundoscope.pipeline.valley_refresh import (
     refresh_valley,
 )
 from fundoscope.pipeline.valley_store import (
-    LATEST_FILE,
     MAPS_DIR,
     ValleyError,
     load_valley,
@@ -35,6 +38,10 @@ REQUEST_SECONDS = 45  # measured overhead of one request...
 MONTH_SECONDS = 40  # ...plus this per month of a ~70 km² tile
 LAND_COVER_SECONDS = 60
 NAME_WIDTH = 31
+NO_DATABASE = (
+    "The database isn't running, and the count is saved there: start it "
+    "(docker compose up -d db) and run the command again."
+)
 
 
 def run_valley_refresh(
@@ -45,14 +52,18 @@ def run_valley_refresh(
     dry_run: bool = False,
     folder: Path | None = None,
     models: Path | None = None,
+    store: ValleyStore | None = None,
     today: date | None = None,
     **options: Any,
 ) -> int:
-    """Plan, download within the quota, count, and print the hectares. Returns the exit code.
+    """Plan, download within the quota, count, print the hectares, and save them in `store`
+    (PostGIS by default). Returns the exit code.
 
     The run may spend at most 80 % of the month's free openEO credits minus `used_credits`,
     and at most `cap` credits; at least one of the two is required when something is left to
-    download. `options` go to `refresh_valley` (tests replace the openEO requests).
+    download. A dry run only prints the plan. Otherwise the store is checked first, so a
+    database that is down stops the run before anything is downloaded. `options` go to
+    `refresh_valley` (tests replace the openEO requests).
     """
     folder = folder or valley_dir(slug)
     try:
@@ -64,6 +75,12 @@ def run_valley_refresh(
     print(format_plan(plan))
     if dry_run:
         return 0
+    store = store or SqlValleyStore()
+    try:
+        print(format_last_run(store.latest_run(slug)))
+    except OperationalError:
+        print(NO_DATABASE)
+        return 1
 
     limit = 0.0
     if plan.downloads:
@@ -82,6 +99,7 @@ def run_valley_refresh(
             folder,
             models or default_models_dir(),
             CreditBudget(limit),
+            store=store,
             on_download=_download_progress(plan.downloads),
             on_tile=_tile_progress(len(valley_.tiles)),
             **options,
@@ -89,8 +107,24 @@ def run_valley_refresh(
     except ValleyError as exc:
         print(str(exc))
         return 1
+    except OperationalError:
+        print(
+            "The count is done, but the database stopped before it was saved. Start it and "
+            "run the command again: the images are on disk, so it costs no credits."
+        )
+        return 1
     print(format_refresh(refresh, folder))
-    return 0 if refresh.run_file else 1
+    return 0 if refresh.run else 1
+
+
+def format_last_run(run: StoredValleyRun | None) -> str:
+    """The valley's previous count, if any."""
+    if run is None:
+        return "No count saved yet: this is the first."
+    return (
+        f"Last count: images up to {run.as_of:%Y-%m-%d}, made "
+        f"{run.run_at.astimezone():%Y-%m-%d %H:%M}."
+    )
 
 
 def format_plan(plan: Plan) -> str:
@@ -154,8 +188,8 @@ def format_refresh(refresh: Refresh, folder: Path) -> str:
         lines += ["", *format_comparison(refresh.counts[0], refresh.counts[1])]
     lines += [
         "",
-        f"Saved in {refresh.run_file} and {folder / LATEST_FILE}; class maps in "
-        f"{folder / MAPS_DIR} ({refresh.seconds / 60:.0f} min).",
+        f"Saved in the database (valley_runs); class maps and images in {folder / MAPS_DIR} "
+        f"({refresh.seconds / 60:.0f} min).",
     ]
     return "\n".join(lines)
 

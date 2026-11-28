@@ -20,7 +20,6 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import date, timedelta
-from pathlib import Path
 
 import pandas as pd
 import xarray as xr
@@ -39,6 +38,7 @@ from fundoscope.ml import (
     predict_crop,
 )
 from fundoscope.pipeline.neighbors import NeighborReport, neighbor_report
+from fundoscope.pipeline.valley_store import CountedValleys
 from fundoscope.sentinel import (
     ARCHIVE_START,
     COMPOSITE_BANDS,
@@ -109,15 +109,15 @@ def parcel_history(
     fetch: Fetcher = fetch_daily_stats,
     fetch_composites: CompositeFetcher | None = None,
     model: CropModel | None = None,
-    valleys: Path | None = None,
+    valleys: CountedValleys | None = None,
 ) -> ParcelHistory:
     """Build a parcel's history from an uploaded KML/KMZ/GeoJSON file.
 
     Pass `fetch_composites` (e.g. `sentinel.fetch_monthly_composites`) to also compute
     % active area per campaign, and also `model` (the trained crop model) to predict the
     crop of each campaign from the same composites, with all their bands. Pass `valleys`
-    (data/valley) for the neighbor comparison of a parcel inside a counted valley; it reads
-    the valley's saved data and makes no satellite request.
+    (the counted valleys) for the neighbor comparison of a parcel inside one; it reads the
+    valley's saved data and makes no satellite request.
 
     Raises:
         ingest.ParcelError: the file isn't a usable parcel (nothing is downloaded then).
@@ -143,7 +143,7 @@ def history_of(
     fetch_composites: CompositeFetcher | None = None,
     model: CropModel | None = None,
     model_version: str | None = None,
-    valleys: Path | None = None,
+    valleys: CountedValleys | None = None,
     stored: StoredHistory | None = None,
     on_progress: Progress | None = None,
 ) -> ParcelHistory:

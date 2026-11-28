@@ -3,11 +3,14 @@
 - `parcels`: one row per parcel outline, with its geometry (GiST index);
 - `observations`: the daily satellite statistics of each parcel, one row per date;
 - `campaigns`: what the monthly composites gave for each campaign of a parcel;
-- `jobs`: the analyses and valley refreshes run in the background (FR-13).
+- `jobs`: the analyses and valley refreshes run in the background (FR-13);
+- `valleys`: each counted valley's area of interest (GiST index), by slug (FR-14);
+- `valley_runs`: each count of a valley's crop hectares, with their 95 % ranges.
 """
 
 import uuid
 from datetime import UTC, date, datetime
+from typing import Any
 
 from geoalchemy2 import Geometry
 from sqlalchemy import (
@@ -22,7 +25,7 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -101,3 +104,36 @@ class JobRow(Base):
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ValleyRow(Base):
+    __tablename__ = "valleys"
+    __table_args__ = (Index("ix_valleys_geom", "geom", postgresql_using="gist"),)
+
+    slug: Mapped[str] = mapped_column(String(40), primary_key=True)
+    # The area of interest of the latest count (it may be redrawn between counts).
+    geom = mapped_column(Geometry("MULTIPOLYGON", srid=4326, spatial_index=False), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, server_default=func.now()
+    )
+
+
+class ValleyRunRow(Base):
+    __tablename__ = "valley_runs"
+    __table_args__ = (Index("ix_valley_runs_valley_run_at", "valley", "run_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    valley: Mapped[str] = mapped_column(String(40), ForeignKey("valleys.slug", ondelete="CASCADE"))
+    run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    as_of: Mapped[date] = mapped_column(Date)
+    newest_image: Mapped[date | None] = mapped_column(Date)
+    area_km2: Mapped[float] = mapped_column(Float)
+    farmland_ha: Mapped[float] = mapped_column(Float)
+    credits: Mapped[float] = mapped_column(Float)
+    downloads: Mapped[int] = mapped_column(Integer)
+    seconds: Mapped[float] = mapped_column(Float)
+    model_version: Mapped[str] = mapped_column(Text)
+    model_trained_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    corners: Mapped[list[list[float]]] = mapped_column(JSONB)
+    colors: Mapped[dict[str, str]] = mapped_column(JSONB)
+    counts: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)

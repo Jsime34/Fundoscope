@@ -9,7 +9,6 @@ GET /api/parcels/{id}/history, rebuilt from the database with no satellite reque
 
 from collections.abc import Iterator
 from datetime import date, datetime
-from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
@@ -18,11 +17,12 @@ from pydantic import BaseModel
 
 from fundoscope.api.jobs import job_store, wake_worker
 from fundoscope.api.schemas import HistoryOut, JobOut, ParcelOut, history_out, job_out, parcel_out
-from fundoscope.api.valley import valleys_folder
+from fundoscope.api.valley import counted_valleys
 from fundoscope.db import JobStore, ParcelStore, SqlParcelStore, session_scope
 from fundoscope.ingest import ParcelError
 from fundoscope.pipeline.jobs import start_analysis
 from fundoscope.pipeline.parcel_store import reopen_parcel, store_parcel
+from fundoscope.pipeline.valley_store import CountedValleys
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
@@ -116,7 +116,7 @@ def get_parcel_history(
     parcel_id: UUID,
     store: Annotated[ParcelStore, Depends(parcel_store)],
     jobs: Annotated[JobStore, Depends(job_store)],
-    valleys: Annotated[Path, Depends(valleys_folder)],
+    valleys: Annotated[CountedValleys, Depends(counted_valleys)],
 ) -> HistoryOut:
     """A parcel's report, rebuilt from the database with no satellite request.
 

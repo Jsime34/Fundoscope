@@ -5,12 +5,14 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
+from sqlalchemy.exc import OperationalError
 
 from fundoscope.cli.plots import history_chart
 from fundoscope.config import get_settings
+from fundoscope.db import SqlValleyStore, engine
 from fundoscope.ingest import ParcelError, zone_label
 from fundoscope.ml import CropModel
-from fundoscope.pipeline import ParcelHistory, load_crop_model, parcel_history
+from fundoscope.pipeline import CountedValleys, ParcelHistory, load_crop_model, parcel_history
 from fundoscope.pipeline.parcel_history import CompositeFetcher, Fetcher
 from fundoscope.sentinel import SentinelError, fetch_monthly_composites
 
@@ -38,13 +40,15 @@ def run_history(
     fetch: Fetcher | None = None,
     fetch_composites: CompositeFetcher | None = None,
     model: CropModel | None = None,
-    valleys: Path | None = None,
+    valleys: CountedValleys | None = None,
 ) -> int:
     """Download, compute, print, and save a parcel's history. Returns the exit code.
 
     With `active_area`, also downloads monthly composites (about 7 openEO credits and
     30 seconds per campaign, two campaigns at a time) to compute % active area and, with the
-    model saved by `fundoscope model train` (or `model`), the crop of each campaign.
+    model saved by `fundoscope model train` (or `model`), the crop of each campaign. A parcel
+    inside a counted valley is compared with its neighbors (`valleys`; by default the
+    valleys in data/valley with their counts in PostGIS, skipped if the database is down).
     """
     try:
         data = file.read_bytes()
@@ -52,7 +56,9 @@ def run_history(
         print(f"Can't read {file}: {exc}")
         return 1
 
-    options: dict = {"valleys": valleys or get_settings().data_dir / "valley"}
+    options: dict = {"valleys": valleys or default_valleys()}
+    if options["valleys"] is None:
+        print("The database isn't running, so the parcel isn't compared with its neighbors.")
     if fetch:
         options["fetch"] = fetch
     if active_area:
@@ -83,6 +89,16 @@ def run_history(
     save_outputs(history, out)
     print(f"\nSaved the table, the series, and the chart to {out}")
     return 0
+
+
+def default_valleys() -> CountedValleys | None:
+    """The valleys in data/valley with their counts in PostGIS; None if the database is down."""
+    try:
+        with engine().connect():
+            pass
+    except OperationalError:
+        return None
+    return CountedValleys(get_settings().data_dir / "valley", SqlValleyStore())
 
 
 def summary(history: ParcelHistory) -> str:

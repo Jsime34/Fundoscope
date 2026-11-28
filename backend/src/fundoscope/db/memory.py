@@ -1,11 +1,13 @@
-"""Parcel and job stores in memory: for tests and for runs without a database."""
+"""Parcel, job, and valley stores in memory: for tests and for runs without a database."""
 
 import threading
+from collections.abc import Iterable
 from dataclasses import replace
 from datetime import UTC, date, datetime
 from uuid import UUID, uuid4
 
 import pandas as pd
+from shapely.geometry import Point
 from shapely.geometry.base import BaseGeometry
 
 from fundoscope.db.jobs import (
@@ -27,6 +29,7 @@ from fundoscope.db.records import (
     StoredParcel,
     empty_observations,
 )
+from fundoscope.db.valleys import StoredValleyRun, as_multipolygon
 
 
 class MemoryParcelStore:
@@ -159,3 +162,26 @@ class MemoryJobStore:
     def spent(self, parcel_id: UUID) -> tuple[float, float]:
         jobs = [job for job in self._jobs.values() if job.parcel_id == parcel_id]
         return sum(job.processing_units for job in jobs), sum(job.credits for job in jobs)
+
+
+class MemoryValleyStore:
+    """Valley areas and runs in dictionaries; lost when the process ends."""
+
+    def __init__(self) -> None:
+        self._areas: dict[str, BaseGeometry] = {}
+        self._runs: list[StoredValleyRun] = []
+
+    def save_run(self, run: StoredValleyRun, area: BaseGeometry) -> None:
+        self._areas[run.valley] = as_multipolygon(area)
+        self._runs.append(run)
+
+    def latest_run(self, slug: str) -> StoredValleyRun | None:
+        return _newest(run for run in self._runs if run.valley == slug)
+
+    def latest_run_at(self, point: Point) -> StoredValleyRun | None:
+        inside = {slug for slug, area in self._areas.items() if area.contains(point)}
+        return _newest(run for run in self._runs if run.valley in inside)
+
+
+def _newest(runs: Iterable[StoredValleyRun]) -> StoredValleyRun | None:
+    return max(runs, key=lambda run: run.run_at, default=None)

@@ -5,12 +5,15 @@
   later refreshes keep it: the area of interest may change, but only inside the grid;
 - `composites/<tile>/<month>.npz`: each month of each tile, downloaded once (the 10 bands as
   compressed 16-bit integers, a NumPy file: faster to read than NetCDF);
-- `landcover.nc`, `maps/`, `runs/`, `latest.json`: written by `valley_refresh`.
+- `landcover.nc`, `maps/`, `requests.csv`: written by `valley_refresh`.
 
-The refresh writes these files and the neighbor comparison (FR-08) reads them.
+The refresh writes these files and the neighbor comparison (FR-08) reads them. The counts
+themselves (the hectares, their ranges and dates, and where the map images go) are saved in
+PostGIS (`db.valleys`): `CountedValleys` pairs the two.
 """
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +23,7 @@ from numpy.typing import NDArray
 from shapely import union_all
 
 from fundoscope.config import get_settings
+from fundoscope.db import ValleyStore
 from fundoscope.ingest import read_features, to_utm, utm_epsg
 from fundoscope.sentinel import COMPOSITE_BANDS
 from fundoscope.timeseries import ndvi
@@ -30,9 +34,7 @@ AOI_FILE = "aoi.geojson"
 GRID_FILE = "grid.json"
 COMPOSITES_DIR = "composites"
 MAPS_DIR = "maps"
-RUNS_DIR = "runs"
 LAND_COVER_FILE = "landcover.nc"
-LATEST_FILE = "latest.json"
 REFLECTANCE_STEP = np.float32(1e-4)  # month files hold reflectance x 10,000...
 NO_VALUE = 65535  # ...as 16-bit integers, with this for "no clear pixel"
 MAX_REFLECTANCE = (NO_VALUE - 1) * float(REFLECTANCE_STEP)
@@ -40,6 +42,19 @@ MAX_REFLECTANCE = (NO_VALUE - 1) * float(REFLECTANCE_STEP)
 
 class ValleyError(RuntimeError):
     """The valley can't be refreshed. The message is meant for the user."""
+
+
+@dataclass(frozen=True)
+class CountedValleys:
+    """The counted valleys: their files and their counts.
+
+    Attributes:
+        folder: the valleys' folder (data/valley), one subfolder per slug.
+        runs: their counts, in PostGIS (or in memory, for tests).
+    """
+
+    folder: Path
+    runs: ValleyStore
 
 
 def valley_dir(slug: str) -> Path:

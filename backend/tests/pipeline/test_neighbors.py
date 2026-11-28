@@ -1,11 +1,11 @@
-"""The neighbor comparison read from a counted valley's files (hand-built near Ica)."""
-
-import json
+"""The neighbor comparison read from a counted valley's files and count (hand-built near Ica)."""
 
 import pytest
 
+from fundoscope.db import MemoryValleyStore
 from fundoscope.ingest import parse_parcel
 from fundoscope.pipeline.neighbors import OUTSIDE, TOO_FEW, campaign_counts, neighbor_report
+from fundoscope.pipeline.valley_store import CountedValleys
 
 
 def test_each_campaign_gets_its_band_among_the_neighbors(neighbor_valley):
@@ -39,21 +39,21 @@ def test_a_parcel_outside_every_valley(neighbor_valley, parcel_geojson):
     assert (report.valley, report.bands, report.ring, report.note) == (None, [], None, OUTSIDE)
 
 
-def test_no_valleys_folder(tmp_path, parcel_geojson):
-    report = neighbor_report(parse_parcel(parcel_geojson, "lote.geojson"), tmp_path / "none")
+def test_no_counted_valley(tmp_path, parcel_geojson):
+    valleys = CountedValleys(tmp_path / "none", MemoryValleyStore())
+
+    report = neighbor_report(parse_parcel(parcel_geojson, "lote.geojson"), valleys)
 
     assert report.note == OUTSIDE
 
 
-def test_a_valley_being_set_up_is_skipped(neighbor_valley):
+def test_a_counted_valley_without_its_files_is_not_compared(tmp_path, neighbor_valley):
     valleys, parcel_file = neighbor_valley
-    broken = valleys / "broken"
-    broken.mkdir()
-    (broken / "latest.json").write_text("{}", encoding="utf-8")  # no area of interest yet
+    moved = CountedValleys(tmp_path / "moved", valleys.runs)  # its area of interest is gone
 
-    report = neighbor_report(parse_parcel(parcel_file, "vecino.geojson"), valleys)
+    report = neighbor_report(parse_parcel(parcel_file, "vecino.geojson"), moved)
 
-    assert report.valley == "demo"
+    assert (report.valley, report.note) == (None, OUTSIDE)
 
 
 def test_too_few_neighbors(neighbor_valley):
@@ -65,13 +65,14 @@ def test_too_few_neighbors(neighbor_valley):
     assert report.ring is not None
 
 
-def test_the_campaigns_compared():
-    run = json.loads(
-        '{"counts": ['
-        '{"campaign": "2026/27", "months": 4, "through": "2026-11-22"},'
-        '{"campaign": "2025/26", "months": 4, "through": "2025-11-22"},'
-        '{"campaign": "2025/26", "months": 12, "through": "2026-07-31"},'
-        '{"campaign": "2024/25", "months": 12, "through": "2025-07-31"}]}'
+def test_the_campaigns_compared(make_valley_run):
+    run = make_valley_run(
+        counts=[
+            {"campaign": "2026/27", "months": 4, "through": "2026-11-22"},
+            {"campaign": "2025/26", "months": 4, "through": "2025-11-22"},
+            {"campaign": "2025/26", "months": 12, "through": "2026-07-31"},
+            {"campaign": "2024/25", "months": 12, "through": "2025-07-31"},
+        ]
     )
 
     counts = campaign_counts(run)
@@ -95,13 +96,14 @@ def test_tiles_away_from_the_window_are_not_read(neighbor_valley):
     from fundoscope.valley.season import Count
 
     valleys, _ = neighbor_valley
-    demo = load_valley(valleys / "demo", "demo")
+    folder = valleys.folder / "demo"
+    demo = load_valley(folder, "demo")
     west, south, _, north = demo.tiles[0].bounds
     far = Tile("r9c9", (west + 10_000, south, west + 10_400, north))  # no files: never opened
     window = Tile("window", (west, north - 30, west + 20, north))  # 3 rows x 2 columns
     keys = Count("2024/25", 12, date(2025, 7, 31)).month_keys()[:2]
 
-    values = window_ndvi(valleys / "demo", replace(demo, tiles=(far, demo.tiles[0])), window, keys)
+    values = window_ndvi(folder, replace(demo, tiles=(far, demo.tiles[0])), window, keys)
 
     assert values.shape == (2, 3, 2)
     assert np.allclose(values[:, :, 1], 0.2 + 0.015, atol=1e-3)  # column 1 of the gradient

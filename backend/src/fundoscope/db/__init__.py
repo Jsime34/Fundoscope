@@ -1,10 +1,13 @@
-"""Database layer: PostGIS tables, migrations, the parcel store (FR-02), and jobs (FR-13).
+"""Database layer: PostGIS tables, migrations, the parcel store (FR-02), jobs (FR-13), and the
+valley counts (FR-14).
 
 Submodules: `records` (what is stored, as plain objects, and the `ParcelStore` protocol),
 `models` (the tables), `parcels` (`SqlParcelStore` and `AutocommitParcelStore`, the store
 in PostGIS), `jobs` (background jobs: `Job`, the `JobStore` protocol, `SqlJobStore`),
-`memory` (`MemoryParcelStore` and `MemoryJobStore`, for tests and runs without a
-database), `session` (connections, migrations, and a look at the tables).
+`valleys` (the valleys' areas and counts: `StoredValleyRun`, the `ValleyStore` protocol,
+`SqlValleyStore`), `memory` (`MemoryParcelStore`, `MemoryJobStore`, and `MemoryValleyStore`,
+for tests and runs without a database), `session` (connections, migrations, and a look at
+the tables).
 """
 
 from fundoscope.db.jobs import (
@@ -17,7 +20,7 @@ from fundoscope.db.jobs import (
     JobStore,
     SqlJobStore,
 )
-from fundoscope.db.memory import MemoryJobStore, MemoryParcelStore
+from fundoscope.db.memory import MemoryJobStore, MemoryParcelStore, MemoryValleyStore
 from fundoscope.db.parcels import AutocommitParcelStore, SqlParcelStore
 from fundoscope.db.records import (
     OBSERVATION_COLUMNS,
@@ -28,6 +31,7 @@ from fundoscope.db.records import (
     empty_observations,
 )
 from fundoscope.db.session import describe, engine, make_engine, session_scope, upgrade
+from fundoscope.db.valleys import SqlValleyStore, StoredValleyRun, ValleyStore
 
 __all__ = [
     "ANALYZE",
@@ -41,12 +45,16 @@ __all__ = [
     "JobStore",
     "MemoryJobStore",
     "MemoryParcelStore",
+    "MemoryValleyStore",
     "ParcelStore",
     "SqlJobStore",
     "SqlParcelStore",
+    "SqlValleyStore",
     "StoredCampaign",
     "StoredHistory",
     "StoredParcel",
+    "StoredValleyRun",
+    "ValleyStore",
     "describe",
     "empty_observations",
     "engine",

@@ -12,10 +12,11 @@ from fastapi.testclient import TestClient
 from fundoscope.api import history as history_api
 from fundoscope.api import jobs as jobs_api
 from fundoscope.api.main import app
-from fundoscope.api.valley import valleys_folder
-from fundoscope.db import MemoryJobStore, MemoryParcelStore
+from fundoscope.api.valley import valley_store, valleys_folder
+from fundoscope.db import MemoryJobStore, MemoryParcelStore, MemoryValleyStore
 from fundoscope.pipeline.jobs import run_next
 from fundoscope.pipeline.parcel_store import update_parcel
+from fundoscope.pipeline.valley_store import CountedValleys
 
 TODAY = date(2024, 7, 31)  # data from Aug 2018 to here: campaigns 2018/19 ... 2023/24
 
@@ -31,18 +32,25 @@ def jobs():
 
 
 @pytest.fixture
-def client(tmp_path, store, jobs):
+def valleys(tmp_path):
+    """No counted valley (tests that need one replace it)."""
+    return CountedValleys(tmp_path / "valleys", MemoryValleyStore())
+
+
+@pytest.fixture
+def client(store, jobs, valleys):
     app.dependency_overrides = {
         history_api.parcel_store: lambda: store,
         jobs_api.job_store: lambda: jobs,
-        valleys_folder: lambda: tmp_path / "valleys",
+        valleys_folder: lambda: valleys.folder,
+        valley_store: lambda: valleys.runs,
     }
     yield TestClient(app)
     app.dependency_overrides = {}
 
 
 @pytest.fixture
-def run_jobs(store, jobs, fake_fetch, fake_composites, tmp_path):
+def run_jobs(store, jobs, fake_fetch, fake_composites, valleys):
     """Run every queued job, as the worker would, with the fakes (options replace them)."""
 
     def run(**options):
@@ -50,7 +58,7 @@ def run_jobs(store, jobs, fake_fetch, fake_composites, tmp_path):
             "today": TODAY,
             "fetch": fake_fetch,
             "fetch_composites": fake_composites,
-            "valleys": tmp_path / "valleys",
+            "valleys": valleys,
         } | options
 
         def analyze(parcel_id, on_progress):

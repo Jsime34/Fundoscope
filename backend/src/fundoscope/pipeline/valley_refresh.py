@@ -2,9 +2,9 @@
 
 Its files are described in `valley_store` (data/valley/<slug>/, git-ignored); it also
 writes `landcover.nc` (ESA WorldCover on the valley grid), `maps/<count>.nc` (the class of
-every pixel, opens in QGIS), `maps/<count>/<class>.png` (the dashboard's images),
-`runs/<time>.json` and `latest.json` (the hectares), and `requests.csv` (every openEO
-request with its cost, FR-25).
+every pixel, opens in QGIS), `maps/<count>/<class>.png` (the dashboard's images), and
+`requests.csv` (every openEO request with its cost, FR-25). The hectares of each count are
+saved in PostGIS, as a valley run (`db.valleys`), with the area of interest counted.
 
 A refresh first downloads the months it lacks (see `fundoscope.valley.season`), two requests
 at a time, within a credit budget. A run stopped by the budget or by failures counts nothing
@@ -31,6 +31,7 @@ import xarray as xr
 from numpy.typing import NDArray
 from pyproj import CRS
 
+from fundoscope.db import StoredValleyRun, ValleyStore
 from fundoscope.ingest import from_utm
 from fundoscope.ml import MONTHS, CropModel
 from fundoscope.pipeline.train_model import (
@@ -45,9 +46,7 @@ from fundoscope.pipeline.valley_store import (
     COMPOSITES_DIR,
     GRID_FILE,
     LAND_COVER_FILE,
-    LATEST_FILE,
     MAPS_DIR,
-    RUNS_DIR,
     ValleyError,
     load_stack,
     peak_ndvi,
@@ -82,7 +81,6 @@ from fundoscope.valley.season import Count, MonthKey, Season, group_months, seas
 
 WORKERS = 2  # openEO's free tier runs 2 requests at a time
 MAX_FAILURES_IN_A_ROW = 3  # then Copernicus is probably down: stop and resume later
-LOG_FILE = "requests.csv"
 LOG_FILE = "requests.csv"
 LAND_COVER = "land cover"
 _CLASSES = {"dtype": "uint8", "zlib": True, "complevel": 4}
@@ -179,7 +177,7 @@ class Refresh:
         farmland_ha: hectares of farmland in the valley.
         newest_image: the day of the newest image the first count could use (None if the
             catalog couldn't say).
-        run_file: the saved run (None when nothing was counted).
+        run: the run saved in the valley store (None when nothing was counted).
         seconds: how long the refresh took.
     """
 
@@ -190,7 +188,7 @@ class Refresh:
     counts: list[CountResult] = field(default_factory=list)
     farmland_ha: float = 0.0
     newest_image: date | None = None
-    run_file: Path | None = None
+    run: StoredValleyRun | None = None
     seconds: float = 0.0
 
     @property
@@ -219,24 +217,33 @@ def plan_refresh(valley_: Valley, folder: Path, today: date) -> Plan:
     return Plan(valley_, when, tuple(requests), not (folder / LAND_COVER_FILE).exists())
 
 
+def local_now() -> datetime:
+    """The time now, with the computer's UTC offset (stored as a moment in PostGIS)."""
+    return datetime.now().astimezone()
+
+
 def refresh_valley(
     plan: Plan,
     folder: Path,
     models_dir: Path,
     budget: CreditBudget,
     *,
+    store: ValleyStore,
     fetch: CompositeFetcher = fetch_monthly_composites,
     fetch_cover: LandCoverFetcher = fetch_land_cover,
     newest_image: Callable[..., date | None] = newest_image_date,
     on_download: Callable[[Download], None] | None = None,
     on_tile: Callable[[Tile], None] | None = None,
     workers: int = WORKERS,
-    now: Callable[[], datetime] = datetime.now,
+    now: Callable[[], datetime] = local_now,
 ) -> Refresh:
-    """Download what `plan` lacks within `budget`, then count every crop of the valley.
+    """Download what `plan` lacks within `budget`, count every crop of the valley, and save
+    the count in `store`.
 
     Raises:
         ValleyError: there is no crop model or model card (the counts need them).
+        sqlalchemy.exc.OperationalError: the database is down when the count is saved (the
+            downloads are kept: running again counts at no cost).
     """
     started = time.monotonic()
     models, card = _models(plan.season.counts, models_dir)
@@ -265,8 +272,9 @@ def refresh_valley(
         newest_image=_newest_image(plan, newest_image),
         seconds=time.monotonic() - started,
     )
-    run_file = _save_run(refresh, folder, card, now())
-    return replace(refresh, run_file=run_file)
+    run = _run_record(refresh, card, now())
+    store.save_run(run, from_utm(plan.valley.area_utm, plan.valley.epsg))
+    return replace(refresh, run=run)
 
 
 def _newest_image(plan: Plan, newest_image: Callable[..., date | None]) -> date | None:
@@ -576,33 +584,27 @@ def _save_images(
         (folder / files[name]).write_bytes(image)
 
 
-def _save_run(refresh: Refresh, folder: Path, card: dict[str, Any], run_at: datetime) -> Path:
-    """Save the run as runs/<time>.json and latest.json."""
+def _run_record(refresh: Refresh, card: dict[str, Any], run_at: datetime) -> StoredValleyRun:
+    """The run to save: the counts, and what the dashboard's map needs."""
     plan = refresh.plan
-    run = {
-        "valley": plan.valley.slug,
-        "run_at": run_at.isoformat(timespec="seconds"),
-        "as_of": plan.season.as_of.isoformat(),
-        "newest_image": None if refresh.newest_image is None else refresh.newest_image.isoformat(),
-        "area_km2": round(plan.valley.area_km2, 1),
-        "farmland_ha": round(refresh.farmland_ha, 2),
-        "credits": refresh.credits,
-        "downloads": len(refresh.downloads),
-        "seconds": round(refresh.seconds, 1),
-        "model": {"version": card["version"], "trained_at": card["trained_at"]},
-        "corners": corners(plan.valley.bounds, plan.valley.epsg),
-        "colors": {
-            area.name: class_color(area.name, tuple(a.name for a in refresh.counts[0].areas))
-            for area in refresh.counts[0].areas
-        },
-        "counts": [_count_json(result) for result in refresh.counts],
-    }
-    text = json.dumps(run, indent=2)
-    (folder / RUNS_DIR).mkdir(exist_ok=True)
-    path = folder / RUNS_DIR / f"{run_at:%Y%m%d-%H%M%S}.json"
-    path.write_text(text, encoding="utf-8")
-    (folder / LATEST_FILE).write_text(text, encoding="utf-8")
-    return path
+    classes = tuple(area.name for area in refresh.counts[0].areas)
+    return StoredValleyRun(
+        valley=plan.valley.slug,
+        run_at=run_at,
+        as_of=plan.season.as_of,
+        newest_image=refresh.newest_image,
+        area_km2=round(plan.valley.area_km2, 1),
+        farmland_ha=round(refresh.farmland_ha, 2),
+        credits=refresh.credits,
+        downloads=len(refresh.downloads),
+        seconds=round(refresh.seconds, 1),
+        model_version=card["version"],
+        # The model card has the training computer's local time.
+        model_trained_at=datetime.fromisoformat(card["trained_at"]).astimezone(),
+        corners=corners(plan.valley.bounds, plan.valley.epsg),
+        colors={name: class_color(name, classes) for name in classes},
+        counts=[_count_json(result) for result in refresh.counts],
+    )
 
 
 def _count_json(result: CountResult) -> dict[str, Any]:

@@ -2,6 +2,8 @@ from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
+from sqlalchemy.exc import OperationalError
+
 import fundoscope.cli
 import fundoscope.cli.history as history_cli
 from fundoscope.analysis import Flag
@@ -12,7 +14,10 @@ from fundoscope.cli.history import (
     format_neighbors,
     run_history,
 )
+from fundoscope.db import SqlValleyStore
 from fundoscope.pipeline import parcel_history
+
+DEFAULT_VALLEYS = history_cli.default_valleys  # the real one (conftest.py replaces it)
 
 
 def test_history_prints_the_table_and_saves_all_files(tmp_path, parcel_geojson, fake_fetch, capsys):
@@ -209,7 +214,6 @@ def test_outside_the_pilot_area_the_neighbors_get_a_note(
         date(2024, 7, 31),
         tmp_path / "out",
         fetch=fake_fetch,
-        valleys=tmp_path,
     )
 
     assert "Neighbors: The neighbor comparison is only available" in capsys.readouterr().out
@@ -221,3 +225,53 @@ def test_without_a_comparison_the_neighbors_say_so(parcel_geojson, fake_fetch):
     )
 
     assert format_neighbors(history) == "Neighbors: not compared."
+
+
+def test_without_the_database_the_neighbors_are_skipped(
+    tmp_path, parcel_geojson, fake_fetch, monkeypatch, capsys
+):
+    monkeypatch.setattr(history_cli, "default_valleys", lambda: None)
+    path = tmp_path / "lote.geojson"
+    path.write_bytes(parcel_geojson)
+
+    code = run_history(
+        path, date(2022, 8, 1), date(2024, 7, 31), tmp_path / "out", fetch=fake_fetch
+    )
+
+    printed = capsys.readouterr().out
+    assert code == 0
+    assert "The database isn't running, so the parcel isn't compared with its neighbors." in printed
+    assert "Neighbors: not compared." in printed
+
+
+class FakeEngine:
+    def __init__(self, up: bool):
+        self.up = up
+
+    def connect(self):
+        if not self.up:
+            raise OperationalError("SELECT 1", {}, Exception("connection refused"))
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_the_default_valleys_need_the_database(monkeypatch):
+    monkeypatch.setattr(history_cli, "engine", lambda: FakeEngine(up=False))
+
+    assert DEFAULT_VALLEYS() is None
+
+
+def test_the_default_valleys_are_in_the_data_folder_and_postgis(monkeypatch):
+    from fundoscope.config import get_settings
+
+    monkeypatch.setattr(history_cli, "engine", lambda: FakeEngine(up=True))
+
+    valleys = DEFAULT_VALLEYS()
+
+    assert valleys.folder == get_settings().data_dir / "valley"
+    assert isinstance(valleys.runs, SqlValleyStore)

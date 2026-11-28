@@ -23,6 +23,7 @@ def test_upgrade_and_list_the_tables(test_database, capsys):
     out = capsys.readouterr().out
     assert "The database is up to date." in out
     assert "parcels" in out and "ix_parcels_geom" in out and "observations" in out
+    assert "valley_runs" in out and "ix_valleys_geom" in out
 
 
 def test_the_api_store_uses_one_transaction_per_request(test_database):

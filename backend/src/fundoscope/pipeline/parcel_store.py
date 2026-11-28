@@ -10,7 +10,6 @@ jobs (`pipeline.jobs`, FR-13).
 import hashlib
 from dataclasses import dataclass
 from datetime import date
-from pathlib import Path
 from uuid import UUID
 
 import shapely
@@ -25,6 +24,7 @@ from fundoscope.pipeline.parcel_history import (
     Progress,
     history_of,
 )
+from fundoscope.pipeline.valley_store import CountedValleys
 
 KEY_PRECISION_DEG = 1e-7  # about 1 cm: rounding noise from file formats doesn't matter
 
@@ -72,7 +72,7 @@ def update_parcel(
     fetch_composites: CompositeFetcher | None = None,
     model: CropModel | None = None,
     model_version: str | None = None,
-    valleys: Path | None = None,
+    valleys: CountedValleys | None = None,
     on_progress: Progress | None = None,
 ) -> StoredAnalysis:
     """Bring a stored parcel's history up to `today`, and save what is new.
@@ -109,7 +109,7 @@ def update_parcel(
 
 
 def reopen_parcel(
-    parcel_id: UUID, store: ParcelStore, valleys: Path | None = None
+    parcel_id: UUID, store: ParcelStore, valleys: CountedValleys | None = None
 ) -> StoredAnalysis | None:
     """A stored parcel's history, rebuilt from the store with no satellite request.
 

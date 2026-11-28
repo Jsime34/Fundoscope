@@ -198,7 +198,7 @@ def test_a_parcel_outside_the_pilot_area_gets_a_note(analyze, parcel_geojson):
 
 def test_a_parcel_inside_a_counted_valley_is_compared_with_its_neighbors(analyze, neighbor_valley):
     valleys, parcel_file = neighbor_valley
-    app.dependency_overrides[history_api.valleys_folder] = lambda: valleys
+    app.dependency_overrides[history_api.counted_valleys] = lambda: valleys
 
     body = analyze(parcel_file, "vecino.geojson", valleys=valleys)[1].json()
 

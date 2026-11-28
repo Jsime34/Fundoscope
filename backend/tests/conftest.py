@@ -398,13 +398,68 @@ def parcel_square_geojson(x: float, y: float, size: float = 80.0) -> bytes:
 
 
 @pytest.fixture
-def neighbor_valley(tmp_path):
-    """A counted valley 400 m x 400 m near Ica, written by hand: (valleys folder, parcel file).
+def make_valley_run():
+    """A valley run to save in a valley store, with any field changed."""
+    from datetime import UTC, date, datetime
 
-    Every neighbor pixel's NDVI grows from west to east (0.2 + 0.015 per column); the 80 m
-    parcel in the middle has `PARCEL_NDVI` of its campaign. Columns 0-1 aren't farmland.
+    from fundoscope.db import StoredValleyRun
+
+    def make(valley: str = "demo", **changes) -> StoredValleyRun:
+        values = {
+            "valley": valley,
+            "run_at": datetime(2026, 11, 24, 14, 30, tzinfo=UTC),
+            "as_of": date(2026, 11, 22),
+            "newest_image": date(2026, 11, 19),
+            "area_km2": 0.2,
+            "farmland_ha": 13.0,
+            "credits": 7.0,
+            "downloads": 1,
+            "seconds": 95.5,
+            "model_version": "rf_v1",
+            "model_trained_at": datetime(2026, 11, 23, 15, 0, tzinfo=UTC),
+            "corners": [[-75.71, -14.06], [-75.7, -14.06], [-75.7, -14.07], [-75.71, -14.07]],
+            "colors": {"grape": "#e87ba4"},
+            "counts": [
+                {
+                    "key": "2026-27_to_2026-11-22",
+                    "campaign": "2026/27",
+                    "months": 4,
+                    "through": "2026-11-22",
+                    "in_progress": True,
+                    "model": "season/rf_v1_to_nov.joblib",
+                    "map": "maps/2026-27_to_2026-11-22.nc",
+                    "images": {
+                        "farmland": "maps/2026-27_to_2026-11-22/farmland.png",
+                        "grape": "maps/2026-27_to_2026-11-22/grape.png",
+                    },
+                    "classes": [
+                        {
+                            "name": "grape",
+                            "pixels": 1300,
+                            "hectares": 13.0,
+                            "adjusted": 14.5,
+                            "low": 11.0,
+                            "high": 18.0,
+                        }
+                    ],
+                }
+            ],
+        }
+        return StoredValleyRun(**(values | changes))
+
+    return make
+
+
+@pytest.fixture
+def neighbor_valley(tmp_path, make_valley_run):
+    """A counted valley 400 m x 400 m near Ica, written by hand: (counted valleys, parcel file).
+
+    Its files are in a temporary folder and its count in an in-memory valley store. Every
+    neighbor pixel's NDVI grows from west to east (0.2 + 0.015 per column); the 80 m parcel in
+    the middle has `PARCEL_NDVI` of its campaign. Columns 0-1 aren't farmland.
     """
-    from fundoscope.pipeline.valley_store import save_grid, save_month
+    from fundoscope.db import MemoryValleyStore
+    from fundoscope.pipeline.valley_store import CountedValleys, save_grid, save_month
     from fundoscope.sentinel import COMPOSITE_BANDS
     from fundoscope.valley import valley
     from fundoscope.valley.season import Count
@@ -455,5 +510,9 @@ def neighbor_valley(tmp_path):
     xr.DataArray(
         codes, dims=("y", "x"), coords={"y": tile.y, "x": tile.x}, name="crop_class"
     ).to_netcdf(folder / "maps" / "now.nc", engine="h5netcdf")
-    (folder / "latest.json").write_text(json.dumps({"counts": counts}), encoding="utf-8")
-    return folder.parent, parcel_square_geojson(NEIGHBOR_WEST + 160, NEIGHBOR_SOUTH + 160)
+    store = MemoryValleyStore()
+    store.save_run(make_valley_run(counts=counts), from_utm(area, 32718))
+    return (
+        CountedValleys(folder.parent, store),
+        parcel_square_geojson(NEIGHBOR_WEST + 160, NEIGHBOR_SOUTH + 160),
+    )

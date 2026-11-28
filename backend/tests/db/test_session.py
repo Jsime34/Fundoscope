@@ -12,9 +12,18 @@ from fundoscope.db.session import MIGRATIONS
 def test_the_tables_and_their_spatial_index(db_engine):
     tables = {name: (rows, gist) for name, rows, gist in describe(db_engine)}
 
-    assert set(tables) == {"campaigns", "jobs", "observations", "parcels"}
+    assert set(tables) == {
+        "campaigns",
+        "jobs",
+        "observations",
+        "parcels",
+        "valley_runs",
+        "valleys",
+    }
     assert tables["parcels"] == (0, ["ix_parcels_geom"])
-    assert all(gist == [] for name, (_, gist) in tables.items() if name != "parcels")
+    assert tables["valleys"] == (0, ["ix_valleys_geom"])
+    spatial = {"parcels", "valleys"}
+    assert all(gist == [] for name, (_, gist) in tables.items() if name not in spatial)
 
 
 def test_a_failing_block_saves_nothing(db_engine):
@@ -44,6 +53,8 @@ def test_the_migrations_go_down_and_up_again(database_url, db_engine):
         "jobs",
         "observations",
         "parcels",
+        "valley_runs",
+        "valleys",
     }
 
 

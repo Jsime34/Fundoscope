@@ -1,18 +1,17 @@
 """The neighbor comparison of a parcel, from a counted valley's saved data (FR-08).
 
 The parcel must lie in a valley that `fundoscope valley refresh` has counted: its centroid
-inside the valley's area of interest. The farmland is the latest count's class map (green in
-one of the last three campaigns, minus towns and water), and the monthly NDVI comes from the
-composites the refresh keeps on disk, so the comparison makes no satellite request. It covers
-the campaigns of the latest count: the current one so far and the two before it.
+inside the area of interest of a valley with a count in PostGIS. The farmland is the latest
+count's class map (green in one of the last three campaigns, minus towns and water), and the
+monthly NDVI comes from the composites the refresh keeps on disk, so the comparison makes no
+satellite request. It covers the campaigns of the latest count: the current one so far and
+the two before it.
 """
 
-import json
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import shapely
@@ -28,10 +27,11 @@ from fundoscope.analysis.neighbors import (
     compare,
     neighbor_ring,
 )
+from fundoscope.db import StoredValleyRun
 from fundoscope.ingest import Parcel, ParcelError, from_utm, to_utm
 from fundoscope.pipeline.valley_store import (
     COMPOSITES_DIR,
-    LATEST_FILE,
+    CountedValleys,
     ValleyError,
     load_bands,
     load_valley,
@@ -63,13 +63,13 @@ class NeighborReport:
 
 
 def neighbor_report(
-    parcel: Parcel, valleys: Path, min_neighbors: int = MIN_NEIGHBOR_PIXELS
+    parcel: Parcel, valleys: CountedValleys, min_neighbors: int = MIN_NEIGHBOR_PIXELS
 ) -> NeighborReport:
     """Compare each campaign of the parcel with the farmland 50 m to 2 km around it.
 
     Args:
         parcel: a validated parcel.
-        valleys: the folder of the counted valleys (data/valley).
+        valleys: the counted valleys (their files in data/valley, their counts in PostGIS).
     """
     found = find_valley(parcel, valleys)
     if found is None:
@@ -80,7 +80,7 @@ def neighbor_report(
     window = _window(parcel_utm.buffer(OUTER_M).bounds, valley_.bounds)
     xx, yy = np.meshgrid(window.x, window.y)
     own = shapely.contains_xy(parcel_utm, xx, yy)
-    around = shapely.contains_xy(ring, xx, yy) & _farmland(folder / run["counts"][0]["map"], window)
+    around = shapely.contains_xy(ring, xx, yy) & _farmland(folder / run.counts[0]["map"], window)
     bands = []
     for count in campaign_counts(run):
         values = campaign_ndvi(window_ndvi(folder, valley_, window, count.month_keys()))
@@ -92,26 +92,27 @@ def neighbor_report(
     )
 
 
-def find_valley(parcel: Parcel, valleys: Path) -> tuple[Valley, Path, dict[str, Any]] | None:
-    """The counted valley whose area of interest holds the parcel's centroid, if any."""
-    if not valleys.is_dir():
+def find_valley(
+    parcel: Parcel, valleys: CountedValleys
+) -> tuple[Valley, Path, StoredValleyRun] | None:
+    """The counted valley whose area of interest holds the parcel's centroid, if any, with its
+    folder and its latest count."""
+    run = valleys.runs.latest_run_at(parcel.geometry.centroid)
+    if run is None:
         return None
-    for folder in sorted(path for path in valleys.iterdir() if (path / LATEST_FILE).is_file()):
-        try:
-            valley_ = load_valley(folder, folder.name)
-        except (ValleyError, ParcelError):
-            continue  # a valley being set up: no comparison from it
-        if valley_.area_utm.contains(to_utm(parcel.geometry.centroid, valley_.epsg)):
-            return valley_, folder, json.loads((folder / LATEST_FILE).read_text(encoding="utf-8"))
-    return None
+    folder = valleys.folder / run.valley
+    try:
+        return load_valley(folder, run.valley), folder, run
+    except (ValleyError, ParcelError):
+        return None  # its files were moved away: no comparison from it
 
 
-def campaign_counts(run: dict[str, Any]) -> list[Count]:
+def campaign_counts(run: StoredValleyRun) -> list[Count]:
     """The campaigns to compare: the latest count's first one (the current campaign so far)
     and the whole campaigns before it, oldest first."""
     counts = [
         Count(item["campaign"], item["months"], date.fromisoformat(item["through"]))
-        for item in run["counts"]
+        for item in run.counts
     ]
     current, rest = counts[0], counts[1:]
     earlier = [c for c in rest if not c.in_progress and c.campaign != current.campaign]

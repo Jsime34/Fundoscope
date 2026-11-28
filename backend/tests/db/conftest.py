@@ -16,8 +16,10 @@ from fundoscope.db import (
     AutocommitParcelStore,
     MemoryJobStore,
     MemoryParcelStore,
+    MemoryValleyStore,
     SqlJobStore,
     SqlParcelStore,
+    SqlValleyStore,
     make_engine,
     session_scope,
     upgrade,
@@ -52,7 +54,7 @@ def db_engine(database_url):
     engine = make_engine(database_url)
     yield engine
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE parcels, jobs CASCADE"))
+        conn.execute(text("TRUNCATE parcels, jobs, valleys CASCADE"))
     engine.dispose()
 
 
@@ -79,3 +81,11 @@ def any_jobs(request):
         return MemoryJobStore(), MemoryParcelStore()
     engine = request.getfixturevalue("db_engine")
     return SqlJobStore(engine), AutocommitParcelStore(engine)
+
+
+@pytest.fixture(params=["memory", "postgis"])
+def any_valleys(request):
+    """The same tests for both valley stores."""
+    if request.param == "memory":
+        return MemoryValleyStore()
+    return SqlValleyStore(request.getfixturevalue("db_engine"))

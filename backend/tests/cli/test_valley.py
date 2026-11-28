@@ -4,10 +4,12 @@ import json
 from datetime import date
 
 from shapely.geometry import box, mapping
+from sqlalchemy.exc import OperationalError
 
 import fundoscope.cli.valley
 from fundoscope.cli import main
 from fundoscope.cli.valley import format_plan, run_valley_refresh
+from fundoscope.db import MemoryValleyStore
 from fundoscope.ingest import from_utm
 from fundoscope.pipeline.valley_refresh import plan_refresh
 from fundoscope.valley import PLANTED, valley
@@ -24,10 +26,34 @@ def write_aoi(folder, small_valley):
     return folder
 
 
-def run(folder, models, fakes, used=None, cap=1_000.0, **options):
+def run(folder, models, fakes, used=None, cap=1_000.0, store=None, **options):
     return run_valley_refresh(
-        "demo", used, cap, folder=folder, models=models, today=TODAY, **fakes, **options
+        "demo",
+        used,
+        cap,
+        folder=folder,
+        models=models,
+        store=store or MemoryValleyStore(),
+        today=TODAY,
+        **fakes,
+        **options,
     )
+
+
+class DownStore(MemoryValleyStore):
+    """A valley store whose database stops: at once, or only when the count is saved."""
+
+    def __init__(self, at_save: bool = False):
+        super().__init__()
+        self.at_save = at_save
+
+    def latest_run(self, slug):
+        if not self.at_save:
+            raise OperationalError("SELECT", {}, Exception("connection refused"))
+        return super().latest_run(slug)
+
+    def save_run(self, run, area):
+        raise OperationalError("INSERT", {}, Exception("connection refused"))
 
 
 def test_a_dry_run_shows_the_plan_and_downloads_nothing(
@@ -72,7 +98,8 @@ def test_a_refresh_prints_the_hectares_and_the_comparison(
     assert f"  {PLANTED}" in out
     assert "Compared with 2025/26 to Nov 22 (same date, same model):" in out
     assert "(-14%)" in out  # 6 vineyard pixels this season against 7 (one is cloudy)
-    assert "Saved in" in out and "latest.json" in out
+    assert "No count saved yet: this is the first." in out
+    assert "Saved in the database (valley_runs); class maps and images in" in out
 
 
 def test_the_used_credits_limit_the_run(
@@ -90,15 +117,41 @@ def test_a_second_refresh_needs_no_credits(
     tmp_path, valley_models, valley_fakes, capsys, small_valley
 ):
     folder = write_aoi(tmp_path, small_valley)
-    run(folder, valley_models, valley_fakes)
+    store = MemoryValleyStore()
+    run(folder, valley_models, valley_fakes, store=store)
     capsys.readouterr()
 
-    code = run(folder, valley_models, valley_fakes, cap=None)
+    code = run(folder, valley_models, valley_fakes, cap=None, store=store)
 
     out = capsys.readouterr().out
     assert code == 0
+    assert "Last count: images up to 2026-11-22, made " in out
     assert "Nothing to download: every month is on disk." in out
     assert "Downloaded" not in out and "Farmland:" in out
+
+
+def test_without_the_database_nothing_is_downloaded(
+    tmp_path, valley_models, valley_fakes, capsys, small_valley
+):
+    folder = write_aoi(tmp_path, small_valley)
+
+    code = run(folder, valley_models, valley_fakes, store=DownStore())
+
+    assert code == 1
+    assert "The database isn't running" in capsys.readouterr().out
+    assert valley_fakes["fetch"].calls == []
+
+
+def test_a_database_that_stops_before_the_save(
+    tmp_path, valley_models, valley_fakes, capsys, small_valley
+):
+    folder = write_aoi(tmp_path, small_valley)
+
+    code = run(folder, valley_models, valley_fakes, store=DownStore(at_save=True))
+
+    assert code == 1
+    assert "the database stopped before it was saved" in capsys.readouterr().out
+    assert (folder / "maps").is_dir()  # the work on disk is kept
 
 
 def test_an_unknown_newest_image(tmp_path, valley_models, valley_fakes, capsys, small_valley):

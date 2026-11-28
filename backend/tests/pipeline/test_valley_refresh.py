@@ -14,7 +14,8 @@ import pytest
 import xarray as xr
 from shapely.geometry import box, mapping
 
-from fundoscope.ingest import ParcelError
+from fundoscope.db import MemoryValleyStore
+from fundoscope.ingest import ParcelError, from_utm
 from fundoscope.pipeline.valley_refresh import (
     LAND_COVER,
     LOG_FILE,
@@ -24,7 +25,6 @@ from fundoscope.pipeline.valley_refresh import (
     refresh_valley,
 )
 from fundoscope.pipeline.valley_store import (
-    LATEST_FILE,
     ValleyError,
     load_month,
     load_valley,
@@ -40,11 +40,23 @@ TODAY = date(2026, 11, 24)  # images up to November 22
 RUN_AT = datetime(2026, 11, 24, 9, 30)
 
 
-def refresh(small_valley, folder, models, fakes, today=TODAY, cap=1_000.0, **options):
+def refresh(small_valley, folder, models, fakes, today=TODAY, cap=1_000.0, store=None, **options):
     plan = plan_refresh(small_valley, folder, today)
     return refresh_valley(
-        plan, folder, models, CreditBudget(cap), now=lambda: RUN_AT, **fakes, **options
+        plan,
+        folder,
+        models,
+        CreditBudget(cap),
+        store=store or MemoryValleyStore(),
+        now=lambda: RUN_AT,
+        **fakes,
+        **options,
     )
+
+
+@pytest.fixture
+def store():
+    return MemoryValleyStore()
 
 
 def hectares(result) -> dict[str, float]:
@@ -75,8 +87,8 @@ def test_the_first_plan_downloads_three_campaigns_and_the_land_cover(small_valle
 
 
 @pytest.fixture
-def first_run(small_valley, tmp_path, valley_models, valley_fakes):
-    result = refresh(small_valley, tmp_path, valley_models, valley_fakes)
+def first_run(small_valley, tmp_path, valley_models, valley_fakes, store):
+    result = refresh(small_valley, tmp_path, valley_models, valley_fakes, store=store)
     return result, tmp_path, valley_fakes
 
 
@@ -120,22 +132,26 @@ def test_model_classes_get_ranges_and_rule_classes_do_not(first_run):
     assert areas[PLANTED].adjusted is None
 
 
-def test_the_run_is_saved_with_its_maps_and_costs(first_run):
+def test_the_run_is_saved_with_its_area_maps_and_costs(first_run, store, small_valley):
     result, folder, _ = first_run
+    run = result.run
 
-    assert result.run_file == folder / "runs" / "20261124-093000.json"
-    run = json.loads(result.run_file.read_text(encoding="utf-8"))
-    assert run == json.loads((folder / LATEST_FILE).read_text(encoding="utf-8"))
-    assert (run["valley"], run["as_of"], run["credits"], run["downloads"]) == (
+    assert store.latest_run("demo") == run
+    inside = from_utm(small_valley.area_utm.centroid, small_valley.epsg)  # WGS84
+    assert store.latest_run_at(inside) == run
+    assert (run.valley, run.run_at, run.as_of, run.credits, run.downloads) == (
         "demo",
-        "2026-11-22",
+        RUN_AT,
+        date(2026, 11, 22),
         91.0,
         13,
     )
-    assert run["farmland_ha"] == 0.23
-    assert run["newest_image"] == "2026-11-21"  # the day before the end of the first count
-    assert run["model"] == {"version": "rf_v1", "trained_at": "2026-11-23T10:00:00"}
-    current = run["counts"][0]
+    assert run.farmland_ha == 0.23
+    assert run.newest_image == date(2026, 11, 21)  # the day before the end of the first count
+    assert run.model_version == "rf_v1"
+    assert run.model_trained_at == datetime(2026, 11, 23, 10, 0).astimezone()
+    assert run.colors[PLANTED] == "#008300" and len(run.corners) == 4
+    current = run.counts[0]
     assert (current["campaign"], current["months"], current["in_progress"]) == ("2026/27", 4, True)
     assert current["map"] == "maps/2026-27_to_2026-11-22.nc"
     planted = next(item for item in current["classes"] if item["name"] == PLANTED)
@@ -200,18 +216,20 @@ def test_next_week_downloads_only_the_new_days(first_run, small_valley, valley_m
 
 
 def test_the_cap_stops_the_downloads_and_nothing_is_counted(
-    small_valley, tmp_path, valley_models, valley_fakes
+    small_valley, tmp_path, valley_models, valley_fakes, store
 ):
-    stopped = refresh(small_valley, tmp_path, valley_models, valley_fakes, cap=20, workers=1)
+    stopped = refresh(
+        small_valley, tmp_path, valley_models, valley_fakes, cap=20, store=store, workers=1
+    )
 
     assert stopped.stopped_at_cap
     assert (len(stopped.downloads), stopped.missing) == (2, 11)
-    assert (stopped.counts, stopped.run_file) == ([], None)
-    assert not (tmp_path / LATEST_FILE).exists()
+    assert (stopped.counts, stopped.run) == ([], None)
+    assert store.latest_run("demo") is None
 
-    finished = refresh(small_valley, tmp_path, valley_models, valley_fakes)
+    finished = refresh(small_valley, tmp_path, valley_models, valley_fakes, store=store)
 
-    assert len(finished.downloads) == 11 and finished.run_file is not None
+    assert len(finished.downloads) == 11 and store.latest_run("demo") == finished.run
 
 
 def test_three_failures_in_a_row_stop_the_run(small_valley, tmp_path, valley_models, valley_fakes):
@@ -252,7 +270,7 @@ def test_a_catalog_failure_leaves_the_newest_image_unknown(
 
     result = refresh(small_valley, tmp_path, valley_models, valley_fakes)
 
-    assert result.newest_image is None and result.run_file is not None
+    assert result.newest_image is None and result.run.newest_image is None
     bounds, until = valley_fakes["newest_image"].calls[0]
     assert until == date(2026, 11, 22)
     assert -75.74 < bounds[0] < bounds[2] < -75.72  # the valley in WGS84
@@ -408,5 +426,10 @@ def test_months_from_another_grid_are_refused(first_run, small_valley, valley_mo
 
     with pytest.raises(ValleyError, match="on another tile grid than r0c0"):
         refresh_valley(
-            plan_refresh(moved, folder, TODAY), folder, valley_models, CreditBudget(0), **fakes
+            plan_refresh(moved, folder, TODAY),
+            folder,
+            valley_models,
+            CreditBudget(0),
+            store=MemoryValleyStore(),
+            **fakes,
         )
