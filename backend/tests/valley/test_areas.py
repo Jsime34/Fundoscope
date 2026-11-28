@@ -21,7 +21,31 @@ def test_a_perfect_model_keeps_the_mapped_area_with_no_spread():
     assert error.tolist() == pytest.approx([0, 0])
 
 
-def test_errors_move_area_between_classes_olofsson_2014():
+def test_the_worked_example_of_olofsson_et_al_2014():
+    """The paper's example (section 5, Table 8, results on p. 54): forest change in four
+    classes, mapped from 30 m Landsat pixels (0.09 ha), with 640 reference samples stratified
+    by map class. The same matrix is in the R package mapaccuracy (`olofsson()` examples)."""
+    classes = ["deforestation", "forest gain", "stable forest", "stable non-forest"]
+    pixels = pd.Series([200_000, 150_000, 3_200_000, 6_450_000], index=classes, dtype=float)
+    # Table 8, sample counts: the map class as rows and the reference class as columns.
+    table_8 = [
+        [66, 0, 5, 4],
+        [0, 55, 8, 12],
+        [1, 0, 153, 11],
+        [2, 1, 9, 313],
+    ]
+    # Ours is the other way around: the labeled (reference) class as rows.
+    matrix = pd.DataFrame(table_8, index=classes, columns=classes).T
+
+    adjusted, error = olofsson(pixels * 0.09, matrix)
+
+    # As printed in the paper: 21,158 +- 6,158 ha of deforestation, and so on.
+    assert adjusted.round().tolist() == [21_158, 11_686, 285_770, 581_386]
+    assert (1.96 * error).round().tolist() == [6_158, 3_756, 15_510, 16_282]
+    assert adjusted.sum() == pytest.approx(900_000)  # the map's total area is kept
+
+
+def test_errors_move_area_between_classes():
     # Of 20 parcels predicted "other", 4 were grape; every predicted grape was grape.
     mapped = pd.Series([200.0, 800.0], index=CLASSES)
     matrix = confusion([[10, 4], [0, 16]])
